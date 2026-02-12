@@ -210,6 +210,8 @@ Each user must complete MFA registration (Foundry requires MFA):
 
 ### Create Tables & Insert Data
 
+> **Standalone scripts available:** The SQL below is also available as individual files in [`scripts/`](../scripts/README.md) for easy reuse across deployments. Run them in order: `01-create-tables.sql` → `02-seed-data.sql`.
+
 Open the warehouse SQL editor and run:
 
 ```sql
@@ -254,6 +256,8 @@ INSERT INTO dbo.RepUserMapping VALUES
 
 ### Create RLS Function & Policy
 
+> **Standalone script:** Also available as [`scripts/03-create-rls-policy.sql`](../scripts/03-create-rls-policy.sql). Teardown script: [`scripts/05-teardown.sql`](../scripts/05-teardown.sql).
+
 In the warehouse SQL editor, run:
 
 ```sql
@@ -283,6 +287,8 @@ CREATE SECURITY POLICY dbo.AccountsFilter
 ```
 
 ### Verify RLS Works
+
+> **Standalone script:** Also available as [`scripts/04-verify-rls.sql`](../scripts/04-verify-rls.sql).
 
 1. Open the warehouse SQL editor
 2. Connect as your admin account:
