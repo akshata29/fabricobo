@@ -97,6 +97,16 @@ Because Token #1 (the browser's badge) says `aud=api://...` — it's only for th
 
 When you register the SPA app, you must tell Entra ID *what kind of app it is*. The redirect URI (`http://localhost:5173`) must be added under the **"Single-page application"** platform — not "Web" and not "Mobile/desktop". If you put it under "Web", Entra ID expects a server-side app with a secret, and the browser login will fail with error `AADSTS9002326`. See [Gotcha 1.5](#-gotcha-15-cross-origin-token-redemption-error-aadsts9002326) for the fix.
 
+> **📚 Section 0 References**
+>
+> | Topic | URL |
+> |---|---|
+> | What is the Microsoft identity platform? | [identity-platform overview](https://learn.microsoft.com/en-us/entra/identity-platform/v2-overview) |
+> | App registration in Microsoft Entra ID | [quickstart-register-app](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app) |
+> | Public vs confidential client applications | [msal-client-applications](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-applications) |
+> | MSAL.js — initializing browser apps | [msal-js-initializing-client-applications](https://learn.microsoft.com/en-us/entra/msal/dotnet/getting-started/initializing-client-applications) |
+> | Permissions and consent in the Microsoft identity platform | [permissions-consent-overview](https://learn.microsoft.com/en-us/entra/identity-platform/permissions-consent-overview) |
+
 ### Visual Summary
 
 ```
@@ -200,6 +210,16 @@ Understanding the token chain is the **single most important** thing for debuggi
 ❌ App-only token sent to Foundry → Fabric sees APP identity, not USER → RLS doesn't work
 ✅ OBO token sent to Foundry → Fabric sees USER identity → RLS filters correctly
 ```
+
+> **📚 Sections 2-3 References**
+>
+> | Topic | URL |
+> |---|---|
+> | Access token claims reference — understanding `aud`, `scp`, `appid`, `upn` | [access-token-claims-reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference) |
+> | OAuth 2.0 On-Behalf-Of flow — protocol details and token request format | [v2-oauth2-on-behalf-of-flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow) |
+> | Microsoft Identity Web — token acquisition in ASP.NET Core | [microsoft-identity-web](https://learn.microsoft.com/en-us/entra/msal/dotnet/microsoft-identity-web/) |
+> | Token cache serialization for production | [token-cache-serialization](https://learn.microsoft.com/en-us/entra/msal/dotnet/how-to/token-cache-serialization) |
+> | The `.default` scope — behavior and usage | [scopes-oidc#the-default-scope](https://learn.microsoft.com/en-us/entra/identity-platform/scopes-oidc#the-default-scope) |
 
 ---
 
@@ -402,6 +422,17 @@ CREATE SECURITY POLICY dbo.AccountFilter
 
 This is precisely why this architecture is more secure than "tell the LLM to filter by user" approaches.
 
+> **📚 Sections 4-6 References**
+>
+> | Topic | URL |
+> |---|---|
+> | Azure AI Foundry Agents overview | [agents overview](https://learn.microsoft.com/en-us/azure/ai-services/agents/overview) |
+> | Foundry Responses API quickstart | [agents quickstart](https://learn.microsoft.com/en-us/azure/ai-services/agents/quickstart) |
+> | Fabric Data Agent — what it is and how to create one | [fabric data agent](https://learn.microsoft.com/en-us/fabric/data-science/concept-data-agent) |
+> | Row-Level Security in Fabric Warehouse (T-SQL) | [fabric warehouse security](https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security) |
+> | CREATE SECURITY POLICY (T-SQL reference) | [create-security-policy](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-security-policy-transact-sql) |
+> | RBAC roles for AI Foundry resources | [rbac-ai-foundry](https://learn.microsoft.com/en-us/azure/ai-foundry/concepts/rbac-ai-foundry) |
+
 ---
 
 ## 7. API Permissions — The Complete Picture
@@ -441,7 +472,7 @@ There are two types:
 | Permission | Resource App | Type | Admin Consent | What It Does | What Breaks Without It |
 |---|---|---|---|---|---|
 | `access_as_user` | **FabricObo-API** (`21260626-...`) | Delegated | Granted | Allows the SPA to request a token scoped to the API. This is the "front-door" token — it lets the browser talk to your backend. | Login succeeds but the token has no valid scope for the API. The API returns 401 on every request. |
-| `user_impersonation` | **Azure Machine Learning Services** (`18a66f5f-...`) | Delegated | Granted | *Not strictly required on the SPA*, but was added during development. The SPA never calls Foundry directly — the API does that. | Nothing breaks in the current flow. This is a leftover that could be removed for a cleaner setup. |
+| `user_impersonation` | **Azure Machine Learning Services** (`18a66f5f-...`) | Delegated | Granted | **Pre-collects consent for the OBO chain.** The SPA never calls ML Services directly — the API does, via the OBO exchange. But Entra requires that the *user* has already consented to ML Services before the API can silently exchange tokens on their behalf. By declaring this permission on the SPA and granting admin consent, the consent is collected upfront so the API's `GetAccessTokenForUserAsync` succeeds without an `interaction_required` error. See [Gaining consent for the middle-tier application](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow#gaining-consent-for-the-middle-tier-application). | The OBO exchange at the API fails with `interaction_required` or `AADSTS65001` because the user never consented to ML Services access. The API can't prompt the user (it's a background server call), so the request fails. |
 
 #### How the SPA Uses Its Permissions
 
@@ -476,7 +507,14 @@ This is the app that does the heavy lifting. It has permissions on **two** Micro
 | `user_impersonation` | **Azure Machine Learning Services** | `18a66f5f-dbdf-4c17-9dd7-1634712a9cbe` | Delegated | Granted | Allows the API to exchange the user's token (OBO) for a Foundry token scoped to `https://ai.azure.com`. This is the **core OBO permission** — without it, the token exchange fails. | OBO exchange fails with `AADSTS65001` (consent not granted). The API cannot get a Foundry token. Everything after login is broken. |
 | `user_impersonation` | **Microsoft Cognitive Services** | `7d312290-28c8-473c-a0ed-8e53749b6d6d` | Delegated | Granted | Foundry's Responses API internally validates that the calling app has Cognitive Services permissions. This is in addition to the ML Services permission. | Some Foundry operations work, others fail with `"Create assistant failed"`. Named agent calls with user tokens are especially affected. |
 
-> **Why two resource apps?** Azure AI Foundry sits across two service boundaries internally — the ML platform (`ai.azure.com`) and the cognitive/OpenAI infrastructure. They use different Entra apps for permission checks. Your screenshot shows exactly this: 1 entry for Azure Machine Learning Services + 3 entries for Microsoft Cognitive Services (the 3 entries are duplicates — only 1 is needed, but they don't cause harm).
+> **Why two resource apps?** Azure AI Foundry straddles two Azure resource providers internally:
+>
+> | Resource Provider | Entra App ID | What It Powers |
+> |---|---|---|
+> | **Azure Machine Learning Services** | `18a66f5f-dbdf-4c17-9dd7-1634712a9cbe` | The Foundry hub/project infrastructure. The Responses API endpoint lives under `Microsoft.CognitiveServices/accounts/.../projects/...` but the underlying compute, connections, and agent orchestration run on ML Services. The OBO token audience `https://ai.azure.com` maps here. |
+> | **Microsoft Cognitive Services** | `7d312290-28c8-473c-a0ed-8e53749b6d6d` | The model inference and tool execution layer. When the agent invokes `fabric_dataagent_preview`, Foundry validates that the calling app has Cognitive Services consent for data-plane operations. |
+>
+> We discovered this empirically: without ML Services, the OBO exchange fails entirely. Without Cognitive Services, the OBO succeeds but the `fabric_dataagent_preview` tool call returns 403. **Both are required.**
 
 #### Scopes It Exposes (inbound — "who can call me?")
 
@@ -550,6 +588,29 @@ Your screenshot shows **3 entries** for `user_impersonation` under Microsoft Cog
 5. Re-grant admin consent
 
 > **Gotcha**: If you only add one of the two resource apps (ML Services or Cognitive Services), some operations may work (e.g., inline tools with admin tokens) while others fail (e.g., named agents with user tokens). Always add both.
+
+### Why the SPA Also Declares ML Services
+
+You might notice that `user_impersonation` on Azure ML Services appears on **both** the SPA and the API. This is not a mistake — it's required by the OBO consent model:
+
+| App | Declares ML Services `user_impersonation`? | Reason |
+|---|---|---|
+| **FabricObo-API** | Yes | The API is the app that actually *calls* ML Services via OBO. It needs permission to request tokens scoped to `https://ai.azure.com`. |
+| **FabricObo-Client** (SPA) | Yes | The SPA **pre-collects consent** for the downstream OBO hop. Since the API can't prompt the user for consent (it's a server-side background call), the user's consent to ML Services must be gathered upfront at the SPA. When an admin clicks "Grant admin consent" on the SPA, it covers both `access_as_user` (the direct API call) and `user_impersonation` (the downstream OBO call). |
+
+This pattern is documented in Microsoft's OBO flow guide under [Gaining consent for the middle-tier application](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow#gaining-consent-for-the-middle-tier-application). The `.default` scope and `knownClientApplications` manifest attribute can automate this, but explicit admin consent is the simplest approach for single-tenant POCs.
+
+### Microsoft Documentation References
+
+| Topic | URL | Relevant Section |
+|---|---|---|
+| **OBO flow** — how the API exchanges tokens on behalf of the user | [v2-oauth2-on-behalf-of-flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow) | Protocol diagram, Middle-tier access token request |
+| **Gaining consent for the middle-tier** — why the SPA must pre-collect consent for downstream resources | [v2-oauth2-on-behalf-of-flow#gaining-consent](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow#gaining-consent-for-the-middle-tier-application) | `.default` and combined consent, Admin consent |
+| **Foundry authentication** — Entra ID auth for Cognitive Services endpoints | [ai-services/authentication](https://learn.microsoft.com/en-us/azure/ai-services/authentication) | Authenticate with Microsoft Entra ID |
+| **Foundry RBAC** — roles & permissions for AI Foundry resources | [rbac-ai-foundry](https://learn.microsoft.com/en-us/azure/ai-foundry/concepts/rbac-ai-foundry) | Built-in roles, Notes and limitations |
+| **Certificate credentials** — production alternative to client secrets | [certificate-credentials](https://learn.microsoft.com/en-us/entra/identity-platform/certificate-credentials) | Full article |
+
+> **Note on documentation gaps**: There is no single Microsoft doc that explicitly states "you need both Azure ML Services *and* Cognitive Services delegated permissions for OBO with Fabric Data Agent." This requirement is an emergent consequence of Foundry straddling two resource providers. We discovered it empirically during development — without ML Services the OBO exchange fails; without Cognitive Services the agent tool invocation returns 403.
 
 ---
 
@@ -1083,6 +1144,19 @@ builder.Configuration.AddAzureKeyVault(
 // and the Azure hosting to use a managed identity for Key Vault access
 ```
 
+> **📚 Sections 9-11 References**
+>
+> | Topic | URL |
+> |---|---|
+> | Entra ID error code reference — look up `AADSTS` codes | [aadsts-error-codes](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes) |
+> | SPA redirect URI restrictions — why `AADSTS9002326` happens | [reply-url#spa-redirect-restrictions](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url) |
+> | Conditional Access and device code flow limitations | [conditional-access-dev-guide](https://learn.microsoft.com/en-us/entra/identity-platform/v2-conditional-access-dev-guide) |
+> | Azure Key Vault configuration provider for ASP.NET Core | [key-vault-configuration-provider](https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration) |
+> | Managed identities for Azure resources | [managed-identities-overview](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview) |
+> | Certificate credentials for app registrations | [certificate-credentials](https://learn.microsoft.com/en-us/entra/identity-platform/certificate-credentials) |
+> | CORS configuration in ASP.NET Core | [cors](https://learn.microsoft.com/en-us/aspnet/core/security/cors) |
+> | Distributed token caching (Redis) with Microsoft Identity Web | [token-cache-serialization](https://learn.microsoft.com/en-us/entra/msal/dotnet/how-to/token-cache-serialization) |
+
 ---
 
 ## 12. Troubleshooting Reference
@@ -1227,3 +1301,18 @@ Content-Type: application/json
 | **`user_impersonation`** | The delegated permission on Azure Machine Learning Services / Cognitive Services that allows the API app to call Foundry on behalf of the user. |
 | **Correlation ID** | A unique identifier generated per API request, logged across all downstream calls for traceability. |
 | **Tool Evidence** | Output items from the Responses API (type `fabric_dataagent_preview_call`) that prove the Fabric tool was invoked during agent processing. |
+
+> **📚 Glossary — Deep Dive Links**
+>
+> | Term | Microsoft Documentation |
+> |---|---|
+> | OBO flow | [v2-oauth2-on-behalf-of-flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow) |
+> | Row-Level Security | [fabric warehouse RLS](https://learn.microsoft.com/en-us/fabric/data-warehouse/row-level-security) |
+> | MSAL.js (browser library) | [msal-browser overview](https://learn.microsoft.com/en-us/entra/msal/javascript/) |
+> | Microsoft Identity Web (.NET) | [microsoft-identity-web](https://learn.microsoft.com/en-us/entra/msal/dotnet/microsoft-identity-web/) |
+> | Azure AI Foundry Agents | [agents overview](https://learn.microsoft.com/en-us/azure/ai-services/agents/overview) |
+> | Fabric Data Agent | [fabric data agent](https://learn.microsoft.com/en-us/fabric/data-science/concept-data-agent) |
+> | Entra app registrations | [quickstart-register-app](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app) |
+> | Expose an API (custom scopes) | [quickstart-configure-app-expose-web-apis](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-expose-web-apis) |
+> | Delegated vs application permissions | [permissions-consent-overview](https://learn.microsoft.com/en-us/entra/identity-platform/permissions-consent-overview) |
+> | Entra ID error codes (`AADSTS`) | [reference-error-codes](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes) |
