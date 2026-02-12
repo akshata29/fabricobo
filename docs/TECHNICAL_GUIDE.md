@@ -404,32 +404,152 @@ This is precisely why this architecture is more secure than "tell the LLM to fil
 
 ---
 
-## 7. API Permissions — Why Two Resource Apps
+## 7. API Permissions — The Complete Picture
 
-This is one of the most confusing aspects. The API app registration needs **delegated permissions** on **two** different Microsoft first-party resource apps:
+This section explains **every permission** on **every app registration**, what it does, and what breaks if you remove it. This is the single most common source of setup failures.
 
-### 1. Azure Machine Learning Services (`18a66f5f-dbdf-4c17-9dd7-1634712a9cbe`)
+### Plain-English: What Are API Permissions?
 
-- **Permission**: `user_impersonation` (delegated)
-- **Why**: This is the resource behind `https://ai.azure.com`. The OBO exchange targets this resource app to get a Foundry token.
-- **Admin consent**: Required for all principals.
+When you create an app registration, it has **zero** access to anything by default. API permissions are how you say: *"This app is allowed to call that service, acting on behalf of the signed-in user."*
 
-### 2. Microsoft Cognitive Services (`7d312290-28c8-473c-a0ed-8e53749b6d6d`)
+There are two types:
+- **Delegated** = "Act on behalf of a user" — the app can only do what the user themselves could do. Used in this entire POC.
+- **Application** = "Act as the app itself, with no user" — used for background services. **Not used in this POC** because we need the user's identity to flow through to Fabric for RLS.
 
-- **Permission**: `user_impersonation` (delegated)  
-- **Why**: The Foundry Responses API internally validates permissions against the Cognitive Services resource app as well. Without this, you may get `Create assistant failed` errors.
-- **Admin consent**: Required for all principals.
+**Admin consent** means a tenant admin pre-approves the permission for all users, so individual users don't see a consent popup.
 
-### How to Grant These
+---
 
-1. Go to **Entra ID → App registrations → {API App} → API permissions**
-2. Click **Add a permission → APIs my organization uses**
-3. Search for "Azure Machine Learning Services" → select `user_impersonation`
-4. Search for "Microsoft Cognitive Services" → select `user_impersonation`
-5. Click **Grant admin consent for {tenant}**
-6. Verify both show ✅ "Granted for {tenant}"
+### The Two App Registrations — Side by Side
 
-> **Gotcha**: If you only add one of these, some operations may work (e.g., inline tools with admin tokens) while others fail (e.g., named agents with user tokens). Always add both.
+| | **FabricObo-Client** (SPA) | **FabricObo-API** (API) |
+|---|---|---|
+| **App ID** | `01b70e26-c61e-4287-9f0d-f07b4ed3b66a` | `21260626-6004-4699-a7d0-0773cbcd6192` |
+| **Display Name** | FabricObo-Client | FabricObo-API |
+| **Type** | Public client (no secret) | Confidential client (has a secret) |
+| **Platform** | Single-page application (SPA) | Web API (no redirect URIs) |
+| **Redirect URIs** | `http://localhost:5173` (SPA platform) | None |
+| **Has a client secret?** | No | Yes |
+| **Sign-in audience** | Single tenant (`AzureADMyOrg`) | Single tenant (`AzureADMyOrg`) |
+| **Exposes an API?** | No | Yes — scope `access_as_user` |
+| **Purpose** | Identifies the browser app to Entra ID during login | Validates incoming JWTs, performs OBO exchange, calls Foundry |
+
+---
+
+### FabricObo-Client (SPA) — Permissions Explained
+
+| Permission | Resource App | Type | Admin Consent | What It Does | What Breaks Without It |
+|---|---|---|---|---|---|
+| `access_as_user` | **FabricObo-API** (`21260626-...`) | Delegated | Granted | Allows the SPA to request a token scoped to the API. This is the "front-door" token — it lets the browser talk to your backend. | Login succeeds but the token has no valid scope for the API. The API returns 401 on every request. |
+| `user_impersonation` | **Azure Machine Learning Services** (`18a66f5f-...`) | Delegated | Granted | *Not strictly required on the SPA*, but was added during development. The SPA never calls Foundry directly — the API does that. | Nothing breaks in the current flow. This is a leftover that could be removed for a cleaner setup. |
+
+#### How the SPA Uses Its Permissions
+
+```
+1. User clicks "Sign In"
+2. MSAL.js calls Entra ID: "I'm app 01b70e26..., I need scope api://21260626.../access_as_user"
+3. Entra ID checks: Does this app have permission to request this scope? YES (access_as_user is granted)
+4. Entra ID issues Token #1 with aud=api://21260626... and scp=access_as_user
+5. SPA sends Token #1 to the API with every request
+```
+
+#### SPA Platform Configuration (Critical)
+
+The redirect URI `http://localhost:5173` **must** be registered under the **Single-page application** platform, **not** "Web" or "Mobile/desktop":
+
+| Platform | What It Means | Why SPA Must Use It |
+|---|---|---|
+| **Web** | Server-side app with a secret — uses authorization code flow *with a secret* | Browser JS has no secret → Entra rejects with `AADSTS9002326` |
+| **Mobile and desktop** | Native app — uses device code or broker flows | Can cause Entra to misclassify the app's client type for localhost |
+| **Single-page application** ✅ | Browser JS app — uses authorization code flow with **PKCE** (no secret needed) | This is what MSAL.js `loginPopup()` requires |
+
+---
+
+### FabricObo-API (API) — Permissions Explained
+
+This is the app that does the heavy lifting. It has permissions on **two** Microsoft first-party services, plus it **exposes** a custom scope.
+
+#### Permissions It Requests (outbound — "what can this app call?")
+
+| Permission | Resource App | App ID | Type | Admin Consent | What It Does | What Breaks Without It |
+|---|---|---|---|---|---|---|
+| `user_impersonation` | **Azure Machine Learning Services** | `18a66f5f-dbdf-4c17-9dd7-1634712a9cbe` | Delegated | Granted | Allows the API to exchange the user's token (OBO) for a Foundry token scoped to `https://ai.azure.com`. This is the **core OBO permission** — without it, the token exchange fails. | OBO exchange fails with `AADSTS65001` (consent not granted). The API cannot get a Foundry token. Everything after login is broken. |
+| `user_impersonation` | **Microsoft Cognitive Services** | `7d312290-28c8-473c-a0ed-8e53749b6d6d` | Delegated | Granted | Foundry's Responses API internally validates that the calling app has Cognitive Services permissions. This is in addition to the ML Services permission. | Some Foundry operations work, others fail with `"Create assistant failed"`. Named agent calls with user tokens are especially affected. |
+
+> **Why two resource apps?** Azure AI Foundry sits across two service boundaries internally — the ML platform (`ai.azure.com`) and the cognitive/OpenAI infrastructure. They use different Entra apps for permission checks. Your screenshot shows exactly this: 1 entry for Azure Machine Learning Services + 3 entries for Microsoft Cognitive Services (the 3 entries are duplicates — only 1 is needed, but they don't cause harm).
+
+#### Scopes It Exposes (inbound — "who can call me?")
+
+| Scope Name | Scope URI | Who Can Consent | What It Does |
+|---|---|---|---|
+| `access_as_user` | `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user` | Admins and users | Defines the "door" that the SPA knocks on. When the SPA requests this scope, Entra issues a token with `aud=api://21260626...` and `scp=access_as_user`. The API validates these claims in every incoming JWT. |
+
+This scope was created under **Expose an API** in the portal. It's what connects the SPA to the API — without it, the SPA can't request a token that the API will accept.
+
+#### Client Secret
+
+The API has a client secret (`Jux8Q~...`) stored in `appsettings.Development.json`. This secret is used during the OBO exchange:
+
+```
+API → Entra ID: "I'm app 21260626..., here's my secret to prove it.
+                 Please exchange this user's token for a Foundry token."
+```
+
+Without the secret, the OBO exchange fails — Entra ID requires proof that the calling app is who it claims to be.
+
+> **Production note**: Use certificates instead of secrets. Certificates can't be accidentally committed to source control, and they don't expire as abruptly. See Microsoft's guidance on [credential best practices](https://learn.microsoft.com/entra/identity-platform/certificate-credentials).
+
+---
+
+### How the Permissions Chain Together
+
+Here's the complete flow showing which permission is used at each step:
+
+```
+Step 1: SPA → Entra ID
+  Permission used: SPA has "access_as_user" on FabricObo-API
+  Result: Token #1 (aud=api://21260626..., scp=access_as_user)
+
+Step 2: API validates Token #1
+  Checks: aud matches my app ID? scp includes access_as_user? ✅
+
+Step 3: API → Entra ID (OBO exchange)
+  Permission used: API has "user_impersonation" on Azure ML Services (18a66f5f...)
+  Proof: API presents client secret + user's Token #1
+  Result: Token #2 (aud=https://ai.azure.com, scp=user_impersonation)
+
+Step 4: API → Foundry Responses API
+  Permission checked by Foundry: Token #2 has user_impersonation for ML Services ✅
+  Permission checked by Foundry: API app has user_impersonation for Cognitive Services ✅
+  Result: Foundry accepts the call, passes user identity to Fabric
+
+Step 5: Foundry → Fabric
+  Identity: User A's OID/UPN from Token #2 (preserved through OBO)
+  Fabric applies RLS based on this identity
+```
+
+### What If a Permission Is Missing? — Failure Matrix
+
+| Missing Permission | Where It Fails | Error You'll See |
+|---|---|---|
+| SPA → `access_as_user` on API | Step 1 (login) | `AADSTS65001: The user or admin has not consented to use the application` |
+| API → `user_impersonation` on Azure ML Services | Step 3 (OBO) | `AADSTS65001: consent required` or `MicrosoftIdentityWebChallengeUserException` |
+| API → `user_impersonation` on Cognitive Services | Step 4 (Foundry call) | `"Create assistant failed"` or `403 Forbidden` from Foundry |
+| API → Client secret missing/expired | Step 3 (OBO) | `AADSTS7000215: Invalid client secret provided` |
+| SPA redirect URI on wrong platform | Step 1 (login popup) | `AADSTS9002326: Cross-origin token redemption is permitted only for 'Single-Page Application'` |
+| Admin consent not granted | Step 1 or 3 | `AADSTS65001: admin has not consented` (even if permission is listed, it must be consented) |
+
+### Note on Duplicate Permissions in Your Setup
+
+Your screenshot shows **3 entries** for `user_impersonation` under Microsoft Cognitive Services. This is a portal artifact — the permission was added multiple times (likely during troubleshooting). It doesn't cause harm, but you can clean it up:
+
+1. Go to **API permissions** on the API app
+2. Click the `...` menu next to two of the three Cognitive Services entries
+3. Click **Remove permission**
+4. Leave one `user_impersonation` entry
+5. Re-grant admin consent
+
+> **Gotcha**: If you only add one of the two resource apps (ML Services or Cognitive Services), some operations may work (e.g., inline tools with admin tokens) while others fail (e.g., named agents with user tokens). Always add both.
 
 ---
 
@@ -456,16 +576,311 @@ Fabric RLS says "UserA can see REP001 rows" →  Actually controls data access
 - **Audit logging**: Log which rep code was associated with each request
 - **Early rejection**: If a user shouldn't use the system at all (not just data filtering), the entitlement service can reject before making expensive Foundry calls
 
-### Production Implementation
+### When Do You Need a Real Entitlement Service?
 
-Replace `StubEntitlementService` with a real implementation that queries your authorization database. The interface is simple:
+| Use Case | Need Entitlement? | Why |
+|---|---|---|
+| Only certain users can use the app at all | **Yes** — gate at API layer | Reject early before spending resources on Foundry API calls |
+| Show user's RepCode/role in the chat UI | **Yes** — advisory info | Currently working (the badges in the chat details panel) |
+| Control what data users see | **No** — Fabric RLS handles this | Entitlement cannot enforce what Fabric returns; RLS is the only reliable boundary |
+| Audit who accessed what | **Yes** — logging enrichment | RepCode in structured logs helps with compliance and tracing |
+| Different UI features per role | **Yes** — role-based UX | e.g., Admins see an analytics dashboard, Advisors see a chat-only view |
+| Rate limiting by user tier | **Yes** — business logic | e.g., Free-tier users get 10 questions/day, Premium gets unlimited |
+
+### How It Works Today (Stub Implementation)
+
+The current `StubEntitlementService` is a hardcoded dictionary — no database, no network calls:
+
+```
+Services/
+├── IEntitlementService.cs      ← Interface (1 method)
+├── StubEntitlementService.cs   ← Hardcoded dictionary (current)
+```
+
+**Current behavior:**
+- Known users (User A, User B) → returns their RepCode + Role
+- Unknown users → still returns `IsAuthorized = true` (lets them through)
+- If the service throws an exception → the controller **catches it and continues** (Fabric RLS is the real gate)
+
+This means today the entitlement service is purely cosmetic — removing it entirely would not change the security posture.
+
+---
+
+### Production Scenario A: Gate Access (Block Unauthorized Users)
+
+**Goal**: Only users in your entitlement database can use the app. Everyone else gets a 403 Forbidden.
+
+#### Step 1: Change `StubEntitlementService` to reject unknown users
+
+**File**: `Services/StubEntitlementService.cs`
+
+Change the unknown-user fallback from `IsAuthorized = true` to `IsAuthorized = false`:
 
 ```csharp
-public interface IEntitlementService
+// BEFORE (current — lets everyone through):
+return Task.FromResult(new EntitlementResult
 {
-    Task<EntitlementResult> GetEntitlementAsync(string upn, string oid);
+    Upn = upn,
+    Oid = oid,
+    RepCode = null,
+    Role = null,
+    IsAuthorized = true  // Advisory; Fabric RLS is the real gate
+});
+
+// AFTER (blocks unknown users):
+return Task.FromResult(new EntitlementResult
+{
+    Upn = upn,
+    Oid = oid,
+    RepCode = null,
+    Role = null,
+    IsAuthorized = false  // Reject users not in our mapping
+});
+```
+
+#### Step 2: Enforce the flag in `AgentController`
+
+**File**: `Controllers/AgentController.cs`
+
+After the entitlement lookup (around the `_logger.LogInformation` line for entitlement), add a guard:
+
+```csharp
+// Existing code:
+entitlement = await _entitlementService.GetEntitlementAsync(upn, oid);
+_logger.LogInformation(
+    "[{CorrelationId}] Entitlement: RepCode={RepCode}, Role={Role}, Authorized={Auth}",
+    correlationId, entitlement.RepCode, entitlement.Role, entitlement.IsAuthorized);
+
+// ADD THIS after the log line:
+if (!entitlement.IsAuthorized)
+{
+    _logger.LogWarning(
+        "[{CorrelationId}] Access denied for UPN={Upn} — not in entitlement database",
+        correlationId, upn);
+    return StatusCode(403, new AgentResponse
+    {
+        Status = "forbidden",
+        CorrelationId = correlationId,
+        Error = "You are not authorized to use this application. Contact your administrator."
+    });
 }
 ```
+
+#### Step 3 (Optional): Handle the 403 in the frontend
+
+**File**: `client-app/src/Chat.tsx`
+
+In the `sendMessage` function, after `const data: AgentResponse = await response.json();`, the existing error handling already covers non-200 responses. A 403 will show the error message in the chat. For a better UX, you could add specific handling:
+
+```tsx
+if (response.status === 403) {
+  // Redirect to a "not authorized" page, or show a modal
+  setMessages((prev) => [
+    ...prev,
+    {
+      role: "error",
+      content: data.error || "You are not authorized to use this application.",
+      timestamp: new Date(),
+    },
+  ]);
+  return; // Don't continue processing
+}
+```
+
+---
+
+### Production Scenario B: Replace Stub with a Real Database
+
+**Goal**: Look up user entitlements from a SQL database instead of a hardcoded dictionary.
+
+#### Step 1: Create a new service implementation
+
+**Create file**: `Services/SqlEntitlementService.cs`
+
+```csharp
+using FabricObo.Models;
+using Microsoft.Data.SqlClient;
+using Dapper;
+
+namespace FabricObo.Services;
+
+/// <summary>
+/// Production entitlement service backed by a SQL database.
+/// Queries the UserEntitlements table to map UPN → RepCode/Role.
+/// </summary>
+public sealed class SqlEntitlementService : IEntitlementService
+{
+    private readonly string _connectionString;
+    private readonly ILogger<SqlEntitlementService> _logger;
+
+    public SqlEntitlementService(IConfiguration config, ILogger<SqlEntitlementService> logger)
+    {
+        _connectionString = config.GetConnectionString("EntitlementDb")
+            ?? throw new InvalidOperationException(
+                "Missing 'ConnectionStrings:EntitlementDb' in configuration.");
+        _logger = logger;
+    }
+
+    public async Task<EntitlementResult> GetEntitlementAsync(string upn, string oid)
+    {
+        using var conn = new SqlConnection(_connectionString);
+
+        var row = await conn.QuerySingleOrDefaultAsync<EntitlementRow>(
+            """
+            SELECT RepCode, Role
+            FROM dbo.UserEntitlements
+            WHERE Upn = @Upn
+            """,
+            new { Upn = upn });
+
+        if (row is null)
+        {
+            _logger.LogWarning("No entitlement found for UPN={Upn}, OID={Oid}", upn, oid);
+            return new EntitlementResult
+            {
+                Upn = upn,
+                Oid = oid,
+                RepCode = null,
+                Role = null,
+                IsAuthorized = false  // Or true, depending on your policy
+            };
+        }
+
+        return new EntitlementResult
+        {
+            Upn = upn,
+            Oid = oid,
+            RepCode = row.RepCode,
+            Role = row.Role,
+            IsAuthorized = true
+        };
+    }
+
+    private sealed class EntitlementRow
+    {
+        public string? RepCode { get; init; }
+        public string? Role { get; init; }
+    }
+}
+```
+
+#### Step 2: Add the NuGet packages
+
+```bash
+dotnet add package Dapper
+dotnet add package Microsoft.Data.SqlClient
+```
+
+#### Step 3: Add the connection string to configuration
+
+**File**: `appsettings.json`
+
+```json
+{
+  "ConnectionStrings": {
+    "EntitlementDb": "Server=your-server.database.windows.net;Database=EntitlementDb;Authentication=Active Directory Default;"
+  }
+}
+```
+
+#### Step 4: Register the new service in DI
+
+**File**: `Program.cs`
+
+```csharp
+// BEFORE:
+builder.Services.AddSingleton<IEntitlementService, StubEntitlementService>();
+
+// AFTER:
+builder.Services.AddScoped<IEntitlementService, SqlEntitlementService>();
+```
+
+> **Note**: Changed from `AddSingleton` to `AddScoped` because the SQL service opens a connection per request.
+
+#### Step 5: Create the database table
+
+```sql
+CREATE TABLE dbo.UserEntitlements (
+    Id          INT IDENTITY(1,1) PRIMARY KEY,
+    Upn         NVARCHAR(256)  NOT NULL UNIQUE,
+    RepCode     NVARCHAR(50)   NOT NULL,
+    Role        NVARCHAR(100)  NOT NULL,
+    CreatedAt   DATETIME2      DEFAULT GETUTCDATE()
+);
+
+-- Seed test data matching Fabric RLS RepUserMapping
+INSERT INTO dbo.UserEntitlements (Upn, RepCode, Role) VALUES
+    ('fabricusera@MngEnvMCAP152362.onmicrosoft.com', 'REP001', 'Advisor'),
+    ('fabricuserb@MngEnvMCAP152362.onmicrosoft.com', 'REP002', 'Advisor');
+```
+
+> **Important**: Keep this table in sync with the Fabric `RepUserMapping` table. If they disagree, the entitlement service will show one RepCode in the UI while Fabric RLS enforces a different data filter.
+
+---
+
+### Production Scenario C: Enrich the Agent Prompt with User Context
+
+**Goal**: Pass the user's RepCode/Role to the Foundry agent so the LLM can reference it in responses (e.g., *"As REP001, you manage 4 accounts."*).
+
+#### Step 1: Modify `FoundryAgentService` to accept entitlement data
+
+**File**: `Services/IFoundryAgentService.cs` — add entitlement to the method signature (or wrap in a context object):
+
+```csharp
+Task<AgentResponse> RunAgentAsync(
+    string question,
+    string? conversationId,
+    string oboToken,
+    string correlationId,
+    EntitlementResult? entitlement,   // ← NEW
+    CancellationToken ct);
+```
+
+#### Step 2: Prepend context to the user's question
+
+**File**: `Services/FoundryAgentService.cs` — before sending the request to Foundry:
+
+```csharp
+// Enrich the question with user context (optional, for better LLM responses)
+var enrichedQuestion = question;
+if (entitlement?.RepCode != null)
+{
+    enrichedQuestion =
+        $"[User context: RepCode={entitlement.RepCode}, Role={entitlement.Role}]\n{question}";
+}
+```
+
+#### Step 3: Pass entitlement from the controller
+
+**File**: `Controllers/AgentController.cs` — update the `RunAgentAsync` call:
+
+```csharp
+// BEFORE:
+var agentResponse = await _foundryAgentService.RunAgentAsync(
+    request.Question, request.ConversationId, oboToken, correlationId, cancellationToken);
+
+// AFTER:
+var agentResponse = await _foundryAgentService.RunAgentAsync(
+    request.Question, request.ConversationId, oboToken, correlationId, entitlement, cancellationToken);
+```
+
+> **Caution**: Adding user context to the prompt is a UX improvement, **not a security measure**. The LLM could hallucinate or ignore the prepended context. Fabric RLS remains the enforcement boundary.
+
+---
+
+### Summary of All Files Changed Per Scenario
+
+| File | Scenario A (Gate) | Scenario B (SQL DB) | Scenario C (Prompt) |
+|---|---|---|---|
+| `Services/StubEntitlementService.cs` | Modify (reject unknowns) | Remove (replaced) | No change |
+| `Services/SqlEntitlementService.cs` | — | **Create** (new file) | — |
+| `Services/IFoundryAgentService.cs` | — | — | Modify (add parameter) |
+| `Services/FoundryAgentService.cs` | — | — | Modify (enrich question) |
+| `Controllers/AgentController.cs` | Modify (add 403 guard) | No change | Modify (pass entitlement) |
+| `Program.cs` | No change | Modify (swap DI registration) | No change |
+| `appsettings.json` | No change | Modify (add connection string) | No change |
+| `client-app/src/Chat.tsx` | Optional (403 UX) | No change | No change |
+| `FabricObo.csproj` | No change | Modify (add NuGet packages) | No change |
 
 ---
 
