@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FabricObo</RootNamespace>
+    <!-- IIS deployment: InProcess hosting for best performance -->
+    <AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Microsoft.Identity.Web: handles JWT bearer validation AND the OBO token acquisition.
+      Docs: https://learn.microsoft.com/entra/msal/dotnet/acquiring-tokens/web-apps-apis/on-behalf-of-flow
+    -->
+    <PackageReference Include="Microsoft.Identity.Web" Version="3.8.3" />
+
+    <!--
+      Microsoft.Identity.Web.DownstreamApi is NOT used here — we call Foundry REST manually
+      so we can capture threadId/runId and inspect run steps.
+    -->
+
+    <!-- Swagger / OpenAPI for dev/testing -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+  </ItemGroup>
+
+</Project>
