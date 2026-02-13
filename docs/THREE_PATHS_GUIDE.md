@@ -11,9 +11,9 @@ This document details the three ways to access the Foundry Agent with OBO identi
 ```
                     ┌────────────────────────────────────────────────────────────┐
                     │                   Entra App Registration                  │
-                    │         212...             │
+                    │         21260626-6004-4699-a7d0-0773cbcd6192              │
                     │   Scope: api://21260626-.../access_as_user                │
-                    │   Tenant: 37f...          │
+                    │   Tenant: 37f28838-9a79-4b20-a28a-c7d8a85e4eda           │
                     └────────────────┬───────────────────────────────────────────┘
                                      │
                  ┌───────────────────┼───────────────────────────┐
@@ -173,9 +173,9 @@ These additions were made to the existing Entra app registration and do **not** 
 
 1. **Redirect URI** (Web platform): `https://token.botframework.com/.auth/web/redirect`
 2. **Pre-authorized clients** (on the `access_as_user` scope):
-   - `1fec8e78-bce4-4aaf-ab1b-5451cc387264` — Teams desktop/mobile
-   - `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` — Teams web
-   - `01b70e26-c61e-4287-9f0d-f07b4ed3b66a` — SPA client (already pre-authorized)
+   - `1f...` — Teams desktop/mobile
+   - `5e...` — Teams web
+   - `01b...` — SPA client (already pre-authorized)
 
 ### To Test via Azure Portal Web Chat
 
@@ -348,20 +348,14 @@ This is the critical step — Copilot Studio must authenticate users and pass th
 
    | Setting | Value |
    |---------|-------|
-   | **Service provider** | `Microsoft Entra ID V2 with client secrets` |
-   | **Client ID** | `212...` |
+   | **Service provider** | `Azure Active Directory v2` |
+   | **Client ID** | `21260626-6004-4699-a7d0-0773cbcd6192` |
    | **Client secret** | *(same as AzureAd:ClientSecret in appsettings.json)* |
-   | **Tenant ID** | `37f...` |
-   | **Scopes** | `api://212.../access_as_user` |
-   | **Resource URL** | *(leave empty — V2 uses scopes, not resource URL)* |
-   | **Token exchange URL** | *(leave empty — clear any pre-filled value)* |
+   | **Tenant ID** | `37f28838-9a79-4b20-a28a-c7d8a85e4eda` |
+   | **Scopes** | `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user` |
 
-   > **Critical:** Use **"Microsoft Entra ID V2 with client secrets"** — NOT "Microsoft Entra ID" (v1), NOT "Microsoft Entra ID with federated credentials". Using v1 causes `AADSTS90008` and `AADSTS90009` errors.
-
-5. Set **"Require users to sign in"** to **OFF**
-   - We'll trigger authentication explicitly via an **Authenticate** node in the topic flow
-   - This avoids `AccessToConversationDenied` errors that occur with forced sign-in
-6. Click **Save**
+5. Click **Save**
+6. Note the **Token Variable** name (usually `System.User.AccessToken` or similar)
 
 > **Important:** After saving, Copilot Studio will show you a redirect URI. You **must** add this redirect URI to your Entra app registration under **Authentication → Web → Redirect URIs**. The format is typically:
 > ```
@@ -573,7 +567,7 @@ Create `wwwroot/manifests/skill-manifest.json` in your project:
       "protocol": "BotFrameworkV3",
       "description": "Default endpoint",
       "endpointUrl": "https://<your-url>/api/messages",
-      "msAppId": "21260626-6004-4699-a7d0-0773cbcd6192"
+      "msAppId": "212..."
     }
   ],
   "activities": {
@@ -636,9 +630,9 @@ After all three paths are configured, your Entra app (`21260626-6004-4699-a7d0-0
 
 | Client ID | App | Scope |
 |-----------|-----|-------|
-| `1fec8e78-bce4-4aaf-ab1b-5451cc387264` | Teams desktop/mobile | `access_as_user` |
-| `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` | Teams web | `access_as_user` |
-| `01b70e26-c61e-4287-9f0d-f07b4ed3b66a` | SPA client | `access_as_user` |
+| `1fec8.` | Teams desktop/mobile | `access_as_user` |
+| `5e3ce...` | Teams web | `access_as_user` |
+| `01b7...` | SPA client | `access_as_user` |
 
 ### API Permissions (Delegated)
 
