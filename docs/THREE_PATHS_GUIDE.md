@@ -11,9 +11,9 @@ This document details the three ways to access the Foundry Agent with OBO identi
 ```
                     ┌────────────────────────────────────────────────────────────┐
                     │                   Entra App Registration                  │
-                    │         21260626-6004-4699-a7d0-0773cbcd6192              │
-                    │   Scope: api://21260626-.../access_as_user                │
-                    │   Tenant: 37f28838-9a79-4b20-a28a-c7d8a85e4eda           │
+                    │         21...              │
+                    │   Scope: api://21.../access_as_user                │
+                    │   Tenant: 37...          │
                     └────────────────┬───────────────────────────────────────────┘
                                      │
                  ┌───────────────────┼───────────────────────────┐
@@ -93,10 +93,10 @@ This is the original path. The React SPA uses MSAL.js to authenticate the user, 
 {
   "AzureAd": {
     "Instance": "https://login.microsoftonline.com/",
-    "TenantId": "37f28838-9a79-4b20-a28a-c7d8a85e4eda",
-    "ClientId": "21260626-6004-4699-a7d0-0773cbcd6192",
+    "TenantId": "37f...",
+    "ClientId": "212...",
     "ClientSecret": "<secret>",
-    "Audience": "api://21260626-6004-4699-a7d0-0773cbcd6192",
+    "Audience": "api://212...",
     "Scopes": "access_as_user"
   }
 }
@@ -150,9 +150,9 @@ A Bot Framework bot registered in Azure Bot Service. Users chat in Teams (or Web
 ```json
 {
   "Bot": {
-    "MicrosoftAppId": "21260626-6004-4699-a7d0-0773cbcd6192",
+    "MicrosoftAppId": "212...",
     "MicrosoftAppPassword": "<same-as-AzureAd:ClientSecret>",
-    "MicrosoftAppTenantId": "37f28838-9a79-4b20-a28a-c7d8a85e4eda",
+    "MicrosoftAppTenantId": "37f...",
     "MicrosoftAppType": "SingleTenant",
     "OAuthConnectionName": "FabricOboConnection"
   }
@@ -173,9 +173,9 @@ These additions were made to the existing Entra app registration and do **not** 
 
 1. **Redirect URI** (Web platform): `https://token.botframework.com/.auth/web/redirect`
 2. **Pre-authorized clients** (on the `access_as_user` scope):
-   - `1fec8e78-bce4-4aaf-ab1b-5451cc387264` — Teams desktop/mobile
-   - `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` — Teams web
-   - `01b70e26-c61e-4287-9f0d-f07b4ed3b66a` — SPA client (already pre-authorized)
+   - `1f...` — Teams desktop/mobile
+   - `5e...` — Teams web
+   - `01b...` — SPA client (already pre-authorized)
 
 ### To Test via Azure Portal Web Chat
 
@@ -280,10 +280,10 @@ This is the critical step — Copilot Studio must authenticate users and pass th
    | Setting | Value |
    |---------|-------|
    | **Service provider** | `Azure Active Directory v2` |
-   | **Client ID** | `21260626-6004-4699-a7d0-0773cbcd6192` |
+   | **Client ID** | `212..` |
    | **Client secret** | *(same as AzureAd:ClientSecret in appsettings.json)* |
-   | **Tenant ID** | `37f28838-9a79-4b20-a28a-c7d8a85e4eda` |
-   | **Scopes** | `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user` |
+   | **Tenant ID** | `37f...` |
+   | **Scopes** | `api://212.../access_as_user` |
 
 5. Click **Save**
 6. Note the **Token Variable** name (usually `System.User.AccessToken` or similar)
@@ -434,7 +434,7 @@ Create `wwwroot/manifests/skill-manifest.json` in your project:
       "protocol": "BotFrameworkV3",
       "description": "Default endpoint",
       "endpointUrl": "https://<your-url>/api/messages",
-      "msAppId": "21260626-6004-4699-a7d0-0773cbcd6192"
+      "msAppId": "212..."
     }
   ],
   "activities": {
@@ -497,9 +497,9 @@ After all three paths are configured, your Entra app (`21260626-6004-4699-a7d0-0
 
 | Client ID | App | Scope |
 |-----------|-----|-------|
-| `1fec8e78-bce4-4aaf-ab1b-5451cc387264` | Teams desktop/mobile | `access_as_user` |
-| `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` | Teams web | `access_as_user` |
-| `01b70e26-c61e-4287-9f0d-f07b4ed3b66a` | SPA client | `access_as_user` |
+| `1fec8.` | Teams desktop/mobile | `access_as_user` |
+| `5e3ce...` | Teams web | `access_as_user` |
+| `01b7...` | SPA client | `access_as_user` |
 
 ### API Permissions (Delegated)
 
