@@ -36,3 +36,12 @@ tool-output.json
 client-app/node_modules/
 client-app/dist/
 appsettings.json
+Bot/localhost.bot
+dotnetapi/Bot/localhost.bot
+
+# Python
+pythonapi/.env
+pythonapi/__pycache__/
+pythonapi/.venv/
+__pycache__/
+*.pyc

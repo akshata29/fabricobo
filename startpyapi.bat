@@ -1,0 +1,1 @@
+cd pythonapi && python main.py

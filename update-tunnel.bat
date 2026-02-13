@@ -1,0 +1,1 @@
+ .\update-bot-endpoint.ps1 -TunnelUrl https://d7vn3d1m-5180.use.devtunnels.ms

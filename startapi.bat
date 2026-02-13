@@ -1,1 +1,1 @@
-dotnet run --launch-profile https
+cd dotnetapi && dotnet run --launch-profile http

@@ -1,4 +1,8 @@
+using FabricObo.Bot;
 using FabricObo.Services;
+using Microsoft.Bot.Builder;
+using Microsoft.Bot.Builder.Integration.AspNet.Core;
+using Microsoft.Bot.Connector.Authentication;
 using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,6 +66,46 @@ builder.Services.AddControllers()
 // Swagger for dev/testing
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// ══════════════════════════════════════════════════════════════════
+// 4b. Bot Framework — Teams / Copilot Studio integration
+//
+// The CloudAdapter handles Bot Framework protocol authentication.
+// FabricOboBot processes messages, performs SSO token exchange,
+// then calls the same IFoundryAgentService used by the SPA path.
+//
+// Endpoint: POST /api/messages
+//
+// Docs: https://learn.microsoft.com/azure/bot-service/bot-builder-basics
+// ══════════════════════════════════════════════════════════════════
+// ConfigurationBotFrameworkAuthentication reads MicrosoftAppId/Password/Type/TenantId
+// from config root. We bind the "Bot" section values to root-level keys so the
+// existing nested config structure works without duplication.
+var botSection = builder.Configuration.GetSection("Bot");
+builder.Configuration["MicrosoftAppId"] = botSection["MicrosoftAppId"];
+builder.Configuration["MicrosoftAppPassword"] = botSection["MicrosoftAppPassword"];
+builder.Configuration["MicrosoftAppTenantId"] = botSection["MicrosoftAppTenantId"];
+builder.Configuration["MicrosoftAppType"] = botSection["MicrosoftAppType"];
+
+builder.Services.AddSingleton<BotFrameworkAuthentication, ConfigurationBotFrameworkAuthentication>();
+builder.Services.AddSingleton<IBotFrameworkHttpAdapter>(sp =>
+{
+    var auth = sp.GetRequiredService<BotFrameworkAuthentication>();
+    var logger = sp.GetRequiredService<ILogger<CloudAdapter>>();
+    var adapter = new CloudAdapter(auth, logger);
+
+    // Global error handler — logs errors and sends a friendly message to the user.
+    // Without this, the CloudAdapter silently swallows exceptions.
+    adapter.OnTurnError = async (turnContext, exception) =>
+    {
+        logger.LogError(exception, "Bot unhandled exception: {Message}", exception.Message);
+        await turnContext.SendActivityAsync("Sorry, something went wrong. Please try again.");
+    };
+
+    return adapter;
+});
+builder.Services.AddSingleton<IBotOboTokenService, BotOboTokenService>();
+builder.Services.AddTransient<IBot, FabricOboBot>();
 
 // ══════════════════════════════════════════════════════════════════
 // 5. Logging — structured logging with correlation IDs

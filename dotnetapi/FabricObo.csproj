@@ -21,6 +21,20 @@
       so we can capture threadId/runId and inspect run steps.
     -->
 
+    <!--
+      Bot Framework SDK — enables this API to also serve as a Teams / Copilot Studio bot.
+      The CloudAdapter handles Bot Framework protocol; TeamsActivityHandler adds Teams SSO support.
+      Docs: https://learn.microsoft.com/azure/bot-service/bot-builder-basics
+    -->
+    <PackageReference Include="Microsoft.Bot.Builder.Integration.AspNet.Core" Version="4.23.1" />
+
+    <!--
+      MSAL for manual OBO exchange in the bot path.
+      The bot receives a user token via Azure Bot Service OAuth connection and exchanges it
+      for a Foundry-scoped token using ConfidentialClientApplication.AcquireTokenOnBehalfOf.
+    -->
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.70.1" />
+
     <!-- Swagger / OpenAPI for dev/testing -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>

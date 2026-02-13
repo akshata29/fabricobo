@@ -1,61 +1,85 @@
 # Fabric OBO Identity Passthrough POC
 
-End-to-end proof-of-concept demonstrating user identity passthrough from a browser SPA, through an ASP.NET Core Web API, via Azure AI Foundry Agent Service (v2 Responses API), to Microsoft Fabric — with Row-Level Security (RLS) enforcement at the Fabric Warehouse layer.
+End-to-end proof-of-concept demonstrating user identity passthrough from a browser SPA, through a Web API, via Azure AI Foundry Agent Service (v2 Responses API), to Microsoft Fabric — with Row-Level Security (RLS) enforcement at the Fabric Warehouse layer.
+
+**Choose your backend language:** The API is available in both .NET and Python.
 
 ## Identity Flow
 
 ```
-User → SPA (MSAL.js) → ASP.NET Core API (JWT + OBO) → Foundry Named Agent → Fabric Data Agent → RLS
+User → SPA (MSAL.js) → Web API (JWT + OBO) → Foundry Named Agent → Fabric Data Agent → RLS
 ```
 
 ## Quick Start
 
 1. **Follow the setup guide** — [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md) covers everything from Entra ID app registrations through Fabric RLS configuration.
-2. **Edit `appsettings.json`** — Fill in Tenant ID, Client ID, Client Secret, Foundry endpoint, Agent Name.
-3. **Build and run the API**:
+
+2. **Choose your API implementation:**
+
+   ### Option A: .NET API (`dotnetapi/`)
    ```bash
+   cd dotnetapi
+   # Edit appsettings.json with your Tenant ID, Client ID, etc.
    dotnet restore
-   dotnet run --launch-profile https
+   dotnet run --launch-profile http
    ```
-4. **Run the frontend**:
+
+   ### Option B: Python API (`pythonapi/`)
+   ```bash
+   cd pythonapi
+   python -m venv .venv && .venv\Scripts\activate
+   pip install -r requirements.txt
+   # Copy config: cp ../dotnetapi/appsettings.json ./appsettings.json
+   # Or: cp .env.example .env  (and fill in values)
+   python main.py
+   ```
+
+3. **Run the frontend**:
    ```bash
    cd client-app
    npm install
    npm run dev
    ```
-5. **Test** — Open http://localhost:5173, sign in as User A or User B, and ask about accounts.
+4. **Test** — Open http://localhost:5173, sign in as User A or User B, and ask about accounts.
 
 ## Project Structure
 
 ```
-FabricObo.csproj              # .NET 9.0 Web API project
-Program.cs                    # DI, auth, middleware setup
-appsettings.json              # Configuration
-web.config                    # IIS hosting config
-
-Controllers/
-  AgentController.cs          # POST /api/agent — main endpoint
-
-Services/
-  IEntitlementService.cs      # Entitlement interface
-  StubEntitlementService.cs   # POC stub (mirrors Fabric RLS mapping)
-  IFoundryAgentService.cs     # Foundry agent interface
-  FoundryAgentService.cs      # v2 Responses API implementation
-
-Models/
-  AgentRequest.cs             # Inbound request DTO
-  AgentResponse.cs            # Response DTO with tool evidence
-  EntitlementResult.cs        # Entitlement lookup result
-
-client-app/                   # React SPA (MSAL.js + Vite)
-  src/authConfig.ts           # MSAL configuration
-  src/App.tsx                 # Login panel with test user buttons
-  src/Chat.tsx                # Chat UI with metadata display
-
-docs/
-  ARCHITECTURE.md             # Architecture, sequence diagram, token flow
-  SETUP_GUIDE.md              # Comprehensive step-by-step setup guide
-  TECHNICAL_GUIDE.md          # Technical deep-dive for customer discussions
+├── dotnetapi/                    # .NET 9.0 Web API implementation
+│   ├── FabricObo.csproj          # Project file
+│   ├── Program.cs                # DI, auth, middleware setup
+│   ├── appsettings.json          # Configuration
+│   ├── web.config                # IIS hosting config
+│   ├── Controllers/
+│   │   ├── AgentController.cs    # POST /api/agent — main endpoint
+│   │   └── ConfigController.cs   # GET /api/config — SPA config
+│   ├── Services/
+│   │   ├── FoundryAgentService.cs    # v2 Responses API implementation
+│   │   ├── StubEntitlementService.cs # POC stub entitlement
+│   │   └── ...
+│   ├── Models/                   # Request/Response DTOs
+│   └── Bot/                      # Teams / Copilot Studio bot
+│
+├── pythonapi/                    # Python (FastAPI) API implementation
+│   ├── main.py                   # FastAPI app + routes
+│   ├── config.py                 # Settings / configuration
+│   ├── auth.py                   # JWT validation + OBO exchange
+│   ├── foundry_agent_service.py  # v2 Responses API client
+│   ├── entitlement_service.py    # Stub entitlement lookup
+│   ├── bot_handler.py            # Bot Framework handler
+│   ├── models.py                 # Request/Response DTOs
+│   └── requirements.txt         # Python dependencies
+│
+├── client-app/                   # React SPA (MSAL.js + Vite)
+│   └── src/
+│       ├── authConfig.ts         # MSAL configuration
+│       ├── App.tsx               # Login panel with test user buttons
+│       └── Chat.tsx              # Chat UI with metadata display
+│
+├── Bot/                          # (moved into dotnetapi/)
+├── scripts/                      # SQL scripts for Fabric RLS setup
+├── teams-manifest/               # Teams app manifest
+└── docs/                         # Architecture & setup guides
 ```
 
 ## Key Design Decisions

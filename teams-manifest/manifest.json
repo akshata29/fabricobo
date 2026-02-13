@@ -1,0 +1,63 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "21260626-6004-4699-a7d0-0773cbcd6192",
+  "developer": {
+    "name": "FabricObo",
+    "websiteUrl": "https://github.com",
+    "privacyUrl": "https://github.com",
+    "termsOfUseUrl": "https://github.com"
+  },
+  "name": {
+    "short": "Fabric Data Assistant",
+    "full": "Fabric Data Assistant with OBO Identity Flow"
+  },
+  "description": {
+    "short": "Query your Fabric data securely using your identity",
+    "full": "Ask questions about your data in natural language. Uses the On-Behalf-Of flow to ensure you only see data you are authorized for, enforced by Fabric Row-Level Security. Powered by Azure AI Foundry Agents."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#4F6BED",
+  "bots": [
+    {
+      "botId": "21260626-6004-4699-a7d0-0773cbcd6192",
+      "scopes": [
+        "personal",
+        "team",
+        "groupChat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            {
+              "title": "help",
+              "description": "Show what I can do"
+            },
+            {
+              "title": "Show me all my accounts",
+              "description": "List accounts you have access to"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "token.botframework.com"
+  ],
+  "webApplicationInfo": {
+    "id": "21260626-6004-4699-a7d0-0773cbcd6192",
+    "resource": "api://21260626-6004-4699-a7d0-0773cbcd6192"
+  }
+}

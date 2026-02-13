@@ -1,0 +1,31 @@
+# ════════════════════════════════════════════════════════════════
+# FabricObo Python API — Dependencies
+#
+# Equivalent of the .NET FabricObo API using FastAPI + MSAL Python.
+# ════════════════════════════════════════════════════════════════
+
+# Web framework — FastAPI is the Python equivalent of ASP.NET Core
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Microsoft Authentication Library — handles OBO token exchange
+# Docs: https://learn.microsoft.com/entra/msal/python/
+msal==1.31.1
+
+# HTTP client — equivalent of IHttpClientFactory in .NET
+httpx==0.28.1
+
+# JWT validation — validates incoming bearer tokens from the SPA
+python-jose[cryptography]==3.3.0
+
+# Configuration — loads settings from .env or environment variables
+python-dotenv==1.0.1
+pydantic-settings==2.7.1
+
+# CORS middleware
+# (included in fastapi/starlette)
+
+# Bot Framework SDK for Python — Teams / Copilot Studio integration
+botbuilder-core==4.16.2
+botbuilder-integration-aiohttp==4.16.2
+aiohttp==3.11.11
