@@ -11,9 +11,9 @@ This document details the three ways to access the Foundry Agent with OBO identi
 ```
                     ┌────────────────────────────────────────────────────────────┐
                     │                   Entra App Registration                  │
-                    │         21260626-6004-4699-a7d0-0773cbcd6192              │
+                    │         212...             │
                     │   Scope: api://21260626-.../access_as_user                │
-                    │   Tenant: 37f28838-9a79-4b20-a28a-c7d8a85e4eda           │
+                    │   Tenant: 37f...          │
                     └────────────────┬───────────────────────────────────────────┘
                                      │
                  ┌───────────────────┼───────────────────────────┐
@@ -93,10 +93,10 @@ This is the original path. The React SPA uses MSAL.js to authenticate the user, 
 {
   "AzureAd": {
     "Instance": "https://login.microsoftonline.com/",
-    "TenantId": "37f28838-9a79-4b20-a28a-c7d8a85e4eda",
-    "ClientId": "21260626-6004-4699-a7d0-0773cbcd6192",
+    "TenantId": "37f...",
+    "ClientId": "212...",
     "ClientSecret": "<secret>",
-    "Audience": "api://21260626-6004-4699-a7d0-0773cbcd6192",
+    "Audience": "api://212...",
     "Scopes": "access_as_user"
   }
 }
@@ -150,9 +150,9 @@ A Bot Framework bot registered in Azure Bot Service. Users chat in Teams (or Web
 ```json
 {
   "Bot": {
-    "MicrosoftAppId": "21260626-6004-4699-a7d0-0773cbcd6192",
+    "MicrosoftAppId": "212...",
     "MicrosoftAppPassword": "<same-as-AzureAd:ClientSecret>",
-    "MicrosoftAppTenantId": "37f28838-9a79-4b20-a28a-c7d8a85e4eda",
+    "MicrosoftAppTenantId": "37f...",
     "MicrosoftAppType": "SingleTenant",
     "OAuthConnectionName": "FabricOboConnection"
   }
@@ -244,7 +244,7 @@ User in Teams                 Azure Bot Service              Your API (localhost
 
 ## Path 3: Copilot Studio
 
-**Status: 🔧 Ready to configure — zero code changes needed**
+**Status: ✅ Tested and working**
 
 There are **two sub-options** for connecting Copilot Studio. Choose based on your preference:
 
@@ -257,8 +257,77 @@ This approach uses Copilot Studio's **HTTP Request** action to call your existin
 - Microsoft Copilot Studio license (included with many M365 plans)
 - Your API must be publicly accessible (dev tunnel or deployed)
 - Copilot Studio must be in the same Entra tenant (`37f28838-...`)
+- Test users must be added to the **Power Platform environment** (see below)
 
 #### Step-by-Step Setup
+
+##### 0. Entra App Registration — Required Permissions
+
+Before configuring Copilot Studio, ensure your Entra app registration has these permissions configured:
+
+1. Go to **Azure Portal → Entra ID → App registrations → FabricObo-API** (`21260626-...`)
+
+2. **API permissions** — Add the following if not already present:
+
+   | API | Permission | Type | Status |
+   |-----|-----------|------|--------|
+   | **FabricObo-API** (self) | `access_as_user` | Delegated | Admin consented |
+   | **Microsoft Graph** | `User.Read` | Delegated | Admin consented |
+   | **Microsoft Graph** | `openid` | Delegated | Admin consented |
+   | **Microsoft Graph** | `profile` | Delegated | Admin consented |
+   | **Microsoft Graph** | `email` | Delegated | Admin consented |
+
+   > **Critical:** The app must have its **own API** (`access_as_user`) listed in its API permissions.
+   > Without this, you'll get `AADSTS650057: Invalid resource` errors.
+   > Without the Graph permissions, you'll get `AADSTS90008: application is misconfigured`.
+
+   **Using Azure CLI:**
+   ```bash
+   # Add the app's own access_as_user permission
+   SCOPE_ID=$(az ad app show --id 212... \
+     --query "api.oauth2PermissionScopes[?value=='access_as_user'].id" -o tsv)
+   az ad app permission add --id 212... \
+     --api 212... --api-permissions ${SCOPE_ID}=Scope
+   az ad app permission grant --id 212... \
+     --api 212... --scope access_as_user
+
+   # Add Microsoft Graph permissions (User.Read, openid, profile, email)
+   az ad app permission add --id 212... \
+     --api 00000003-0000-0000-c000-000000000000 \
+     --api-permissions e1fe6dd8-ba31-4d61-89e7-88639da4683d=Scope \
+                       37f...=Scope \
+                       14dad69e-099b-42c9-810b-d002981feec1=Scope \
+                       64a6cdd6-aab1-4aaf-94b8-3cc8405e90d0=Scope
+   az ad app permission grant --id 212... \
+     --api 00000003-0000-0000-c000-000000000000 \
+     --scope "User.Read openid profile email"
+   ```
+
+3. **Authentication → Web → Redirect URIs** — Ensure this URI exists:
+   ```
+   https://token.botframework.com/.auth/web/redirect
+   ```
+
+##### 0b. Power Platform Environment — Add Test Users
+
+Copilot Studio agents run in a Power Platform environment. **Test users must have access** to this environment or they'll get `AccessToBotDenied` / `AccessToConversationDenied` errors.
+
+1. Go to [admin.powerplatform.microsoft.com](https://admin.powerplatform.microsoft.com)
+2. Select the **environment** where your copilot is created
+3. **Settings** → **Users + permissions** → **Users**
+4. Click **Add user** → search for each test user:
+   - `fabricusera@MngEnvMCAP152362.onmicrosoft.com`
+   - `fabricuserb@MngEnvMCAP152362.onmicrosoft.com`
+5. Assign security roles:
+   - **Basic User** — minimum required to interact with the copilot
+   - **Environment Maker** — needed to create conversations
+
+6. **Share the copilot** with test users:
+   - In Copilot Studio, find your copilot in the copilot list
+   - Click **Share** (or go to [make.powerapps.com](https://make.powerapps.com) → **Chatbots** → three dots → **Share**)
+   - Add each test user with **Editor** access
+
+> **Tip:** The default Power Platform environment typically grants all tenant users access automatically. If you create a copilot in a custom environment, you must explicitly add users.
 
 ##### 1. Create a New Copilot
 
@@ -279,20 +348,28 @@ This is the critical step — Copilot Studio must authenticate users and pass th
 
    | Setting | Value |
    |---------|-------|
-   | **Service provider** | `Azure Active Directory v2` |
-   | **Client ID** | `21260626-6004-4699-a7d0-0773cbcd6192` |
+   | **Service provider** | `Microsoft Entra ID V2 with client secrets` |
+   | **Client ID** | `212...` |
    | **Client secret** | *(same as AzureAd:ClientSecret in appsettings.json)* |
-   | **Tenant ID** | `37f28838-9a79-4b20-a28a-c7d8a85e4eda` |
-   | **Scopes** | `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user` |
+   | **Tenant ID** | `37f...` |
+   | **Scopes** | `api://212.../access_as_user` |
+   | **Resource URL** | *(leave empty — V2 uses scopes, not resource URL)* |
+   | **Token exchange URL** | *(leave empty — clear any pre-filled value)* |
 
-5. Click **Save**
-6. Note the **Token Variable** name (usually `System.User.AccessToken` or similar)
+   > **Critical:** Use **"Microsoft Entra ID V2 with client secrets"** — NOT "Microsoft Entra ID" (v1), NOT "Microsoft Entra ID with federated credentials". Using v1 causes `AADSTS90008` and `AADSTS90009` errors.
+
+5. Set **"Require users to sign in"** to **OFF**
+   - We'll trigger authentication explicitly via an **Authenticate** node in the topic flow
+   - This avoids `AccessToConversationDenied` errors that occur with forced sign-in
+6. Click **Save**
 
 > **Important:** After saving, Copilot Studio will show you a redirect URI. You **must** add this redirect URI to your Entra app registration under **Authentication → Web → Redirect URIs**. The format is typically:
 > ```
 > https://token.botframework.com/.auth/web/redirect
 > ```
 > This is already added from the Teams bot setup. If Copilot Studio shows a different URI, add that too.
+>
+> **Note:** If you export/import the copilot as a solution to another environment, authentication settings (including client secrets) **do NOT export**. You must re-enter them manually in the new environment.
 
 ##### 3. Create a Topic with HTTP Action
 
@@ -303,26 +380,50 @@ This is the critical step — Copilot Studio must authenticate users and pass th
    - "What are my balances"
    - "Query my data"
    - "Tell me about my clients"
-4. Add a **Question** node:
+
+4. **Add an Authenticate node** (before the question):
+   - Click **+** → **Advanced** → **Authenticate**
+   - This triggers sign-in and populates `System.User.AccessToken`
+   - Since we set "Require users to sign in" to OFF, authentication happens here instead
+
+5. Add a **Question** node:
    - **Prompt**: "What would you like to know about your data?"
    - **Save as**: Variable `UserQuestion` (type: string)
-5. Add an **HTTP Request** action node:
+
+6. Add an **HTTP Request** action node:
 
    | Setting | Value |
    |---------|-------|
    | **Method** | `POST` |
    | **URL** | `https://<your-tunnel-or-deployed-url>/api/agent` |
-   | **Headers** | `Content-Type`: `application/json` |
-   | **Headers** | `Authorization`: `Bearer {System.User.AccessToken}` |
-   | **Body** | See below |
+   | **Content type** | `application/json` |
+   | **Headers** | `Authorization`: `Bearer ` + use `{x}` variable picker → `System.User.AccessToken` |
+   | **Body (Raw content)** | See below |
    | **Response data type** | Create from sample (paste the sample below) |
 
-   **Request Body:**
-   ```json
-   {
-     "question": "{UserQuestion}"
-   }
+   **Configuring Headers — Authorization:**
+
+   > **Critical:** When entering the `Authorization` header value:
+   > 1. Type `Bearer ` (with trailing space)
+   > 2. Click the **`{x}`** variable picker icon
+   > 3. Select **System.User.AccessToken** from the variable list
+   > 4. Do NOT type `{System.User.AccessToken}` as literal text — it will be sent as the string `"{System.User.AccessToken}"` instead of the actual token value
+   >
+   > **Note:** Copilot Studio may send the token without the "Bearer " prefix even when configured correctly. The .NET API includes middleware to auto-prepend "Bearer " when it detects a raw JWT. See the [Bearer Prefix Middleware](#bearer-prefix-middleware) note below.
+
+   **Configuring Body — Use Raw Content Mode:**
+
+   > **Critical:** Click the **`</>`** button (or toggle) to switch to **Raw content** mode. Do NOT use the default structured/formula mode, which wraps the body in JSON() and double-encodes it.
+
+   In Raw content mode, type this JSON and use the **`{x}`** variable picker for `UserQuestion`:
+
    ```
+   {"question": "{x UserQuestion}"}
+   ```
+
+   Where `{x UserQuestion}` means: click `{x}`, select your `UserQuestion` variable.
+
+   > **Why Raw content?** The default formula mode uses `JSON()` which produces `"{"question":"..."}"` (a JSON string wrapping your JSON object). The API expects `{"question":"..."}` (a plain JSON object). Raw content mode sends the body as-is.
 
    **Response Sample** (paste in "Create from sample"):
    ```json
@@ -341,11 +442,11 @@ This is the critical step — Copilot Studio must authenticate users and pass th
    }
    ```
 
-6. Add a **Message** node after the HTTP action:
+7. Add a **Message** node after the HTTP action:
    - Text: `{Topic.httpResponse.assistantAnswer}`
    - (Where `httpResponse` is the variable name you gave to the HTTP response)
 
-7. **Save** and **Publish** the topic
+8. **Save** and **Publish** the topic
 
 ##### 4. Test in Copilot Studio
 
@@ -362,6 +463,44 @@ For production, your API must be publicly accessible:
 - **Option B**: Use a persistent Azure Dev Tunnel (for testing)
 
 Update the URL in the HTTP action to match your deployed endpoint.
+
+#### Bearer Prefix Middleware
+
+Copilot Studio may send the access token without the `Bearer ` prefix in the Authorization header (i.e., just the raw JWT). The .NET API includes middleware in `Program.cs` that auto-detects this and prepends `Bearer `:
+
+```csharp
+// Before UseAuthentication — fix Copilot Studio sending raw JWT without "Bearer " prefix
+app.Use(async (context, next) =>
+{
+    var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(authHeader) && !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        // Looks like a raw JWT (starts with eyJ)
+        if (authHeader.StartsWith("eyJ"))
+        {
+            context.Request.Headers["Authorization"] = $"Bearer {authHeader}";
+        }
+    }
+    await next();
+});
+```
+
+> This middleware is placed **before** `app.UseAuthentication()` so the auth middleware sees a properly formatted Bearer token.
+
+#### Troubleshooting Path 3A
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `AADSTS90009` | App requesting token for itself; v1 resource URL used | Switch to **V2** service provider; leave Resource URL empty; use scopes instead |
+| `AADSTS650057: Invalid resource` | App's own API (`access_as_user`) not in its API permissions | Add self-referencing `access_as_user` permission to the app (see Step 0) |
+| `AADSTS90008: application is misconfigured` | Missing Graph delegated permissions | Add `openid`, `profile`, `email`, `User.Read` to Graph permissions with admin consent |
+| `AccessToBotDenied` | User not in the Power Platform environment | Add user to environment with **Basic User** + **Environment Maker** roles; share copilot with **Editor** access (see Step 0b) |
+| `AccessToConversationDenied` | Forced sign-in causing issues | Set "Require users to sign in" to **OFF**; use **Authenticate** node in topic flow instead |
+| `AuthenticationNotConfigured` | Auth settings lost after solution import | Re-enter client secret and all auth settings manually; secrets don't export with solutions |
+| `401 Unauthorized` from API | Token sent as literal text or missing Bearer prefix | Use `{x}` variable picker for `System.User.AccessToken`; don't type it as text. Also ensure Bearer prefix middleware is in place |
+| `400 Bad Request` from API | JSON body double-encoded by `JSON()` formula | Switch to **Raw content** mode for the HTTP body; the formula mode wraps JSON in extra quotes |
+| `404 Not Found` from API | Wrong URL in HTTP action | Ensure URL is `https://<host>/api/agent` (not `/api/messages` which is the bot endpoint) |
+| Token is literal `{System.User.AccessToken}` | Variable name typed as text | **Must** use the `{x}` variable picker icon to insert variables; typing the variable name sends it as literal string |
 
 #### How the Token Flows (Path 3A)
 

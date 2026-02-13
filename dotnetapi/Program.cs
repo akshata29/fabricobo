@@ -7,6 +7,9 @@ using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Enable PII logging for debugging token issues (disable in production!)
+Microsoft.IdentityModel.Logging.IdentityModelEventSource.ShowPII = true;
+
 // ══════════════════════════════════════════════════════════════════
 // 1. Authentication — Microsoft Identity Web
 //
@@ -133,6 +136,34 @@ var app = builder.Build();
 // ══════════════════════════════════════════════════════════════════
 // Middleware pipeline
 // ══════════════════════════════════════════════════════════════════
+
+// Debug: log raw Authorization header and body to diagnose Copilot Studio
+// Also fix missing "Bearer " prefix from Copilot Studio
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/agent"))
+    {
+        var authHeader = context.Request.Headers["Authorization"].FirstOrDefault() ?? "(none)";
+        var preview = authHeader.Length > 60 ? authHeader[..60] + "..." : authHeader;
+        app.Logger.LogWarning("[AUTH DEBUG] Path={Path}, Auth header length={Len}, preview={Preview}",
+            context.Request.Path, authHeader.Length, preview);
+
+        // If the header is a raw JWT (starts with eyJ) without "Bearer " prefix, fix it
+        if (authHeader.StartsWith("eyJ"))
+        {
+            context.Request.Headers["Authorization"] = $"Bearer {authHeader}";
+            app.Logger.LogWarning("[AUTH DEBUG] Added missing 'Bearer ' prefix to Authorization header");
+        }
+
+        // Log request body for debugging
+        context.Request.EnableBuffering();
+        using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
+        var body = await reader.ReadToEndAsync();
+        context.Request.Body.Position = 0;
+        app.Logger.LogWarning("[AUTH DEBUG] Request body: {Body}", body);
+    }
+    await next();
+});
 
 if (app.Environment.IsDevelopment())
 {

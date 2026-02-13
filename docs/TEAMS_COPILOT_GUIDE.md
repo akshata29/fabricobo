@@ -59,7 +59,7 @@ Your existing app registration (`21260626-...`) needs a few additions for the bo
    ```
 
 3. **Expose the API** (should already be done):
-   - Application ID URI: `api://21260626-6004-4699-a7d0-0773cbcd6192`
+   - Application ID URI: `api://2126..`
    - Scope: `access_as_user`
 
 4. **Add API permissions** (if not already present):
@@ -82,9 +82,9 @@ Your existing app registration (`21260626-...`) needs a few additions for the bo
    |---------|-------|
    | Bot handle | `FabricOboBot` |
    | Pricing | F0 (free for dev) |
-   | Microsoft App ID | Use existing: `21260626-6004-4699-a7d0-0773cbcd6192` |
+   | Microsoft App ID | Use existing: `212...` |
    | App type | Single Tenant |
-   | Tenant ID | `37f28838-9a79-4b20-a28a-c7d8a85e4eda` |
+   | Tenant ID | `37f...` |
 
 3. After creation, go to **Settings → Configuration**:
    - **Messaging endpoint**: `https://your-api-domain.com/api/messages`
@@ -101,10 +101,10 @@ This is the step that replaces the SPA's MSAL.js login:
    |---------|-------|
    | Name | `FabricOboConnection` |
    | Service Provider | `Azure Active Directory v2` |
-   | Client ID | `21260626-6004-4699-a7d0-0773cbcd6192` |
+   | Client ID | `2126...` |
    | Client Secret | (your client secret) |
-   | Tenant ID | `37f28838-9a79-4b20-a28a-c7d8a85e4eda` |
-   | Scopes | `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user` |
+   | Tenant ID | `37f...` |
+   | Scopes | `api://212.../access_as_user` |
 
 3. Click **Test Connection** to verify. You should get a token back.
 
@@ -125,7 +125,7 @@ Create a `teams-manifest/manifest.json`:
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
   "manifestVersion": "1.17",
   "version": "1.0.0",
-  "id": "21260626-6004-4699-a7d0-0773cbcd6192",
+  "id": "212...",
   "developer": {
     "name": "Your Org",
     "websiteUrl": "https://your-domain.com",
@@ -147,7 +147,7 @@ Create a `teams-manifest/manifest.json`:
   "accentColor": "#4F6BED",
   "bots": [
     {
-      "botId": "21260626-6004-4699-a7d0-0773cbcd6192",
+      "botId": "212...",
       "scopes": ["personal", "team", "groupChat"],
       "supportsFiles": false,
       "isNotificationOnly": false
@@ -156,8 +156,8 @@ Create a `teams-manifest/manifest.json`:
   "permissions": ["identity", "messageTeamMembers"],
   "validDomains": ["token.botframework.com", "your-api-domain.com"],
   "webApplicationInfo": {
-    "id": "21260626-6004-4699-a7d0-0773cbcd6192",
-    "resource": "api://21260626-6004-4699-a7d0-0773cbcd6192"
+    "id": "212..",
+    "resource": "api://212..."
   }
 }
 ```
@@ -193,26 +193,46 @@ https://<tunnel-id>.devtunnels.ms/api/messages
 
 Copilot Studio can connect to your bot in **two ways**:
 
-### Option 2a: Direct HTTP Action (Simplest — No Bot Changes Needed)
+### Option 2a: Direct HTTP Action (Simplest — No Bot Changes Needed) ✅ Tested
 
 Call your existing SPA API endpoint directly from Copilot Studio:
 
-1. In Copilot Studio → **Settings → Security → Authentication**
-   - Select **Manual** (not "No authentication")
-   - Provider: **Azure Active Directory v2**
-   - Client ID: Create a NEW Entra app registration for Copilot Studio
-   - Scopes: `api://21260626-6004-4699-a7d0-0773cbcd6192/access_as_user`
-   - Token exchange URL (for SSO): `api://21260626-6004-4699-a7d0-0773cbcd6192/botid-{CopilotStudioBotId}`
+> **Full step-by-step guide with troubleshooting:** See [THREE_PATHS_GUIDE.md → Path 3A](THREE_PATHS_GUIDE.md#path-3a-copilot-studio-via-http-action-simplest)
 
-2. Create a **Topic** with an **HTTP Request** action:
+**Quick summary:**
+
+1. **Prerequisites:** Ensure Entra app has self-referencing `access_as_user` permission + Graph `openid`, `profile`, `email`, `User.Read` delegated permissions with admin consent.
+
+2. **Power Platform:** Add test users to environment with **Basic User** + **Environment Maker** roles. Share the copilot with **Editor** access.
+
+3. In Copilot Studio → **Settings → Security → Authentication**
+   - Select **Manual** (not "No authentication")
+   - Provider: **Microsoft Entra ID V2 with client secrets** (NOT v1, NOT federated)
+   - Client ID: `21...` (same app registration)
+   - Scopes: `api://212..../access_as_user`
+   - Resource URL: *(leave empty)*
+   - Token exchange URL: *(leave empty)*
+   - **"Require users to sign in"**: **OFF**
+
+4. Create a **Topic** with:
+   - **Authenticate** node (triggers sign-in, populates `System.User.AccessToken`)
+   - **Question** node (captures user input)
+   - **HTTP Request** action:
+
    | Setting | Value |
    |---------|-------|
    | URL | `https://your-api-domain.com/api/agent` |
    | Method | POST |
-   | Headers | `Authorization: Bearer {System.User.AccessToken}` |
-   | Body | `{"question": "{UserQuestion}"}` |
+   | Content type | `application/json` |
+   | Headers | `Authorization`: `Bearer ` + `{x}` → `System.User.AccessToken` |
+   | Body (Raw content) | `{"question": "{x UserQuestion}"}` |
 
-3. Parse the JSON response and display `assistantAnswer` to the user.
+5. Parse the JSON response and display `assistantAnswer` to the user.
+
+> **Critical gotchas:**
+> - Use the `{x}` **variable picker** to insert `System.User.AccessToken` — don't type it as text
+> - Use **Raw content** mode for the body — the formula mode double-encodes JSON
+> - The .NET API has middleware to auto-add "Bearer " prefix for Copilot Studio's raw JWTs
 
 > **Key**: Copilot Studio's `System.User.AccessToken` contains a user token for your API scope. Your existing `[Authorize]` + OBO flow handles everything — **zero code changes** to your API.
 

@@ -85,12 +85,23 @@ async def validate_token(
     FastAPI dependency that validates the incoming JWT bearer token.
 
     Equivalent of [Authorize] + Microsoft.Identity.Web in .NET.
+    Handles both v1 and v2 Entra ID tokens (Copilot Studio may send v1).
     """
     token = credentials.credentials
+    # Debug: print to stdout to bypass any logger issues
+    print(f"[AUTH DEBUG] Token length: {len(token)}, parts: {token.count('.')}, starts: {token[:40]}...")
     try:
+        # Log token details for debugging
+        logger.warning("Token length: %d, starts with: %s..., parts: %d",
+                       len(token),
+                       token[:30] if len(token) > 30 else token,
+                       token.count('.'))
+
         jwks = await _get_signing_keys(settings)
         # Decode the header to find the signing key
         unverified_header = jwt.get_unverified_header(token)
+        logger.debug("Token header: alg=%s, kid=%s", unverified_header.get("alg"), unverified_header.get("kid"))
+
         key = None
         for k in jwks.get("keys", []):
             if k["kid"] == unverified_header.get("kid"):
@@ -100,12 +111,40 @@ async def validate_token(
         if key is None:
             raise HTTPException(status_code=401, detail="Token signing key not found")
 
+        # Accept both v1 and v2 issuers (Copilot Studio may send v1 tokens)
+        valid_issuers = [
+            f"{settings.instance}{settings.tenant_id}/v2.0",
+            f"https://sts.windows.net/{settings.tenant_id}/",
+            f"{settings.instance}{settings.tenant_id}",
+        ]
+
+        # Accept both api:// URI and raw GUID as audience
+        valid_audiences = [
+            settings.audience,
+            settings.client_id,
+            f"api://{settings.client_id}",
+        ]
+
+        # First try decoding without issuer/audience validation to log claims
+        try:
+            unverified_claims = jwt.decode(
+                token, key, algorithms=["RS256"],
+                options={"verify_aud": False, "verify_iss": False, "verify_at_hash": False},
+            )
+            logger.debug("Token iss=%s, aud=%s, upn=%s",
+                         unverified_claims.get("iss"),
+                         unverified_claims.get("aud"),
+                         unverified_claims.get("preferred_username") or unverified_claims.get("upn"))
+        except JWTError:
+            pass
+
+        # Now validate properly with flexible issuer/audience
         claims = jwt.decode(
             token,
             key,
             algorithms=["RS256"],
-            audience=settings.audience,
-            issuer=f"{settings.instance}{settings.tenant_id}/v2.0",
+            audience=valid_audiences,
+            issuer=valid_issuers,
             options={"verify_at_hash": False},
         )
 
