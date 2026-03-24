@@ -215,10 +215,11 @@ class FoundryAgentService(IFoundryAgentService):
                 correlation_id,
                 self._settings.agent_name,
             )
+            # Do NOT include tool_choice here — the agent has its own tool_choice
+            # configured in Foundry and the API rejects any conflicting override.
             request_body = {
                 "input": question,
                 "conversation": conversation_id,
-                "tool_choice": "auto",
                 "agent": {
                     "name": self._settings.agent_name,
                     "type": "agent_reference",
@@ -334,7 +335,7 @@ class FoundryAgentService(IFoundryAgentService):
                         item_id=tool_id,
                         type=item_type,
                         status=item.get("status", "detected"),
-                        detail=_truncate(json.dumps(item), 500),
+                        detail=json.dumps(item),
                     )
                 )
 
@@ -344,7 +345,7 @@ class FoundryAgentService(IFoundryAgentService):
                         item_id=item.get("id", "unknown"),
                         type=item_type,
                         status=item.get("status", "detected"),
-                        detail=_truncate(json.dumps(item), 500),
+                        detail=json.dumps(item),
                     )
                 )
 

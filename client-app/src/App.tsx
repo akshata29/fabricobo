@@ -3,10 +3,14 @@ import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { apiScope, getAuthConfig } from "./authConfig";
 import Chat from "./Chat";
+import LoadTest from "./LoadTest";
+
+type ActiveTab = "chat" | "loadtest";
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("chat");
 
   // Derive auth state directly from accounts array — more reliable than useIsAuthenticated()
   const isAuthenticated = accounts.length > 0;
@@ -53,6 +57,22 @@ export default function App() {
         <div className="header-left">
           <h1>Fabric OBO POC</h1>
           <span className="subtitle">Identity Passthrough &amp; RLS Demo</span>
+          {isAuthenticated && (
+            <nav className="nav-tabs">
+              <button
+                className={`nav-tab ${activeTab === "chat" ? "active" : ""}`}
+                onClick={() => setActiveTab("chat")}
+              >
+                Chat
+              </button>
+              <button
+                className={`nav-tab ${activeTab === "loadtest" ? "active" : ""}`}
+                onClick={() => setActiveTab("loadtest")}
+              >
+                Load Test
+              </button>
+            </nav>
+          )}
         </div>
         <div className="header-right">
           {isAuthenticated && activeAccount ? (
@@ -132,7 +152,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <Chat />
+          activeTab === "chat" ? <Chat /> : <LoadTest />
         )}
       </main>
     </div>
