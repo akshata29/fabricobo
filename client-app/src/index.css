@@ -1570,8 +1570,384 @@ body {
   transition: all 0.15s;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   MCP Theory Tab Styles
+   Accent: teal (#10b981) to visually distinguish from the standard Chat tab
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --mcp: #10b981;
+  --mcp-hover: #059669;
+  --mcp-dim: rgba(16, 185, 129, 0.15);
+  --mcp-border: rgba(16, 185, 129, 0.3);
+}
+
+/* ─── MCP Nav Tab ────────────────────────────────────────── */
+
+.nav-tab-mcp {
+  color: var(--mcp) !important;
+}
+.nav-tab-mcp.active {
+  background: var(--mcp-dim) !important;
+  border-color: var(--mcp-border) !important;
+  color: var(--mcp) !important;
+}
+
+/* ─── MCP Sidebar ────────────────────────────────────────── */
+
+.mcp-sidebar {
+  width: 320px;
+}
+
+/* ─── Path Status Banner ─────────────────────────────────── */
+
+.mcp-status {
+  font-size: 12px;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.mcp-status-checking {
+  color: var(--text-muted);
+  background: var(--bg-input);
+}
+.mcp-status-ok {
+  color: var(--mcp);
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  font-weight: 600;
+}
+.mcp-status-warn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.mcp-status-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.mcp-status-hint code {
+  background: rgba(245, 158, 11, 0.15);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+/* ─── Architecture diagram ───────────────────────────────── */
+
+.mcp-arch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mcp-arch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.mcp-arch-row-highlight {
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+}
+.mcp-arch-step {
+  font-weight: 700;
+  font-size: 10px;
+  width: 48px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mcp);
+}
+.mcp-arch-arrow {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.mcp-arch-desc {
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.mcp-arch-theory {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--mcp);
+  font-style: italic;
+  padding: 6px 8px;
+  background: var(--mcp-dim);
+  border-radius: 4px;
+  border-left: 3px solid var(--mcp);
+}
+
+/* ─── Concurrent Count Buttons ───────────────────────────── */
+
+.mcp-concurrent-section h3 {
+  color: var(--mcp) !important;
+}
+.mcp-concurrent-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.mcp-count-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mcp-count-btn {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 14px;
+  transition: all 0.15s;
+}
+.mcp-count-btn:hover:not(:disabled) {
+  border-color: var(--mcp);
+  color: var(--mcp);
+}
+.mcp-count-btn-active {
+  background: var(--mcp-dim) !important;
+  border-color: var(--mcp) !important;
+  color: var(--mcp) !important;
+}
+.mcp-count-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Fire button ────────────────────────────────────────── */
+
+.mcp-btn-fire {
+  width: 100%;
+  justify-content: center;
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  color: var(--mcp);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 16px;
+  transition: all 0.15s;
+}
+.mcp-btn-fire:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.25);
+}
+.mcp-btn-fire:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Concurrent Results ─────────────────────────────────── */
+
+.mcp-concurrent-results {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-theory-verdict {
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+.mcp-verdict-pass {
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  color: var(--mcp);
+}
+.mcp-verdict-fail {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--error);
+}
+.mcp-verdict-note {
+  font-weight: 400;
+  font-size: 11px;
+  display: block;
+}
+.mcp-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.mcp-results-table th {
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.mcp-results-table td {
+  padding: 4px 6px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+.mcp-row-ok td { color: var(--mcp); }
+.mcp-row-err td { color: var(--error); }
+.mcp-error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mcp-error-item {
+  font-size: 10px;
+  color: var(--error);
+  line-height: 1.4;
+  word-break: break-all;
+}
+.mcp-error-item code {
+  font-family: monospace;
+  font-size: 10px;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+/* ─── MCP Path Banner ────────────────────────────────────── */
+
+.mcp-path-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px;
+  background: var(--mcp-dim);
+  border-bottom: 1px solid var(--mcp-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.mcp-path-badge {
+  background: var(--mcp);
+  color: #000;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.mcp-path-label {
+  font-size: 12px;
+  color: var(--mcp);
+  flex: 1;
+}
+.mcp-path-vs {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* ─── MCP Chat Input ─────────────────────────────────────── */
+
+.mcp-chat-input:focus {
+  border-color: var(--mcp) !important;
+}
+.mcp-btn-send {
+  background: var(--mcp);
+  color: #000;
+  font-weight: 700;
+  padding: 10px 20px;
+}
+.mcp-btn-send:hover:not(:disabled) {
+  background: var(--mcp-hover);
+}
+
+/* ─── MCP Avatar & badges ────────────────────────────────── */
+
+.mcp-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--mcp);
+  letter-spacing: 0.02em;
+}
+.mcp-latency-badge {
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  border-radius: 4px;
+  color: var(--mcp);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+}
+.mcp-tool-badge {
+  background: var(--mcp-dim);
+  border: 1px solid var(--mcp-border);
+  color: var(--mcp);
+}
+
+/* ─── Not-configured notice ──────────────────────────────── */
+
+.mcp-not-configured-notice {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: #f59e0b;
+  max-width: 400px;
+}
+.mcp-not-configured-notice code {
+  background: rgba(245, 158, 11, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+
 .btn-history:hover {
   background: rgba(99, 102, 241, 0.22);
+}
+
+/* ─── MCP Load Test — verdict + wave analysis ────────────── */
+
+.mcp-overall-verdict {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.mcp-verdict-headline {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 4px;
+}
+.mcp-wave-analysis {
+  margin-top: 14px;
+}
+.mcp-wave-analysis h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 6px;
+}
+.mcp-btn-run {
+  background: var(--mcp);
+  color: #000;
+  font-weight: 700;
+}
+.mcp-btn-run:hover:not(:disabled) {
+  background: var(--mcp-hover, #059669);
 }
 
 /* ─── Test History Panel ─────────────────────────────────── */

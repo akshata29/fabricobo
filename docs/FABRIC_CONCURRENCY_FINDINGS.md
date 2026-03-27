@@ -87,6 +87,90 @@ These all map to the same Fabric OID and therefore serialize:
 
 3. **Accept the constraint and document it** — for most enterprise chat scenarios (one screen, one question at a time), this never manifests. The Teams + Web simultaneous case is rare in practice.
 
+4. **MCP Direct Path (Theory Test — implemented)** — `Browser → API → Foundry → MCP Tool → Fabric (new thread per request)`.  See details below.
+
+---
+
+## Theory 4 — MCP Direct Path (Implemented in /api/agent/v2)
+
+### Hypothesis
+
+The `fabric_data_agent_client` sample (GitHub) claims:
+> *"New thread = new execution slot = concurrency works"*
+
+If Fabric's constraint is **per-thread** (not globally per-OID), then bypassing Foundry's thread lifecycle and creating an explicit new Fabric thread for every request should allow multiple simultaneous requests from the same user to run in parallel.
+
+### Architecture
+
+```
+Current (v1):
+  Browser → API (OBO → ai.azure.com) → Foundry → built-in Fabric tool
+            → Foundry manages thread lifecycle → Fabric (serialised per OID?)
+
+Theory (v2) — implemented:
+  Browser → API (OBO → ai.azure.com AND api.fabric.microsoft.com)
+          → Foundry (inline MCP tool, no built-in Fabric tool)
+          → /mcp endpoint (this API, fabric_mcp_server.py)
+          → Fabric Assistants API (NEW uuid-named thread per request)
+          → Fabric Data Agent (RLS enforced, same OBO identity)
+```
+
+### Key Differences
+
+| Dimension | v1 (Current) | v2 (MCP Theory) |
+|---|---|---|
+| Foundry tool type | `fabric_dataagent_preview` (built-in) | `mcp` (custom MCP server) |
+| Thread lifecycle | Foundry manages conversation → Fabric thread mapping | API creates explicit new thread per request |
+| Thread reuse | Possibly per conversation or per user | Never reused — fresh `uuid4()` name each call |
+| OBO scopes | `ai.azure.com` only | `ai.azure.com` (Foundry) + `api.fabric.microsoft.com` (Fabric direct) |
+| Fabric token in model context | No | No — stored in TokenSessionStore, only opaque session_key in context |
+| Concurrency if per-thread constraint | Serialised (same thread?) | Parallel (different thread per request) |
+| Concurrency if per-OID global constraint | Serialised | Still serialised |
+
+### What This Actually Tests
+
+> **The open question:** does Fabric enforce *"one active run per thread"* (per-thread serialisation) or *"one active run per OID globally"* (global per-OID serialisation)?
+
+- If **per-thread**: The MCP path should resolve same-user concurrency at the cost of no conversation context reuse across requests.
+- If **per-OID global**: Neither approach helps without moving to service-principal auth (which breaks RLS).
+
+The error message `"Can't add messages to thread_... while a run ... is active"` reads as per-thread — it names a specific thread. The `fabric_data_agent_client` README supports this interpretation. But unambiguous documentation from Microsoft does not exist.
+
+### Implementation Files
+
+| File | Purpose |
+|---|---|
+| `pythonapi/token_session_store.py` | In-process TTL cache; stores Fabric OBO token keyed by a short-lived UUID session_key |
+| `pythonapi/fabric_mcp_server.py` | MCP server; exposes `query_fabric` tool; creates new Fabric thread per call |
+| `pythonapi/mcp_foundry_service.py` | Foundry Responses API wrapper using inline MCP tool instead of built-in Fabric tool |
+| `pythonapi/main.py` `/api/agent/v2` | Theory-test endpoint; does dual OBO, stores token, calls McpFoundryAgentService |
+| `pythonapi/main.py` `/mcp` | MCP server mounted here; Foundry calls back to this URL |
+| `pythonapi/auth.py` `exchange_token_for_fabric` | Second OBO exchange producing `api.fabric.microsoft.com`-scoped token |
+| `pythonapi/config.py` `FabricDirectSettings` | `FABRIC_DIRECT_DATA_AGENT_URL` + `FABRIC_DIRECT_API_PUBLIC_URL` |
+
+### Required New Environment Variables
+
+```env
+# URL of your published Fabric Data Agent (same URL as in fabric_data_agent_client)
+FABRIC_DIRECT_DATA_AGENT_URL=https://{host}/aiskills/{workspace}/aiassistant/{agent}/openai
+
+# Public root URL of this API so Foundry can call back to /mcp
+# Dev: your devtunnel URL (same tunnel already used for Teams bot testing)
+# Prod: your deployed API URL
+FABRIC_DIRECT_API_PUBLIC_URL=https://your-tunnel-id.devtunnels.ms
+```
+
+### Testing the Theory
+
+1. Set the two new env vars and restart the API.
+2. Use the existing load-test UI — point it at `/api/agent/v2` instead of `/api/agent`.
+3. Run with multiple concurrent users sharing the same Entra account.
+4. Compare success rate and serialisation errors vs. the v1 path.
+
+### OBO Consent Note
+
+The API app registration must have **delegated permission** for `api.fabric.microsoft.com/user_impersonation` (or equivalent Fabric scope) for the second OBO to succeed. If it fails with `interaction_required`, grant admin consent for the Fabric scope in the app registration.
+
 ---
 
 ## Load Test Results

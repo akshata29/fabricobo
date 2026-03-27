@@ -4,8 +4,10 @@ import { InteractionStatus } from "@azure/msal-browser";
 import { apiScope, getAuthConfig } from "./authConfig";
 import Chat from "./Chat";
 import LoadTest from "./LoadTest";
+import McpChat from "./McpChat";
+import McpLoadTest from "./McpLoadTest";
 
-type ActiveTab = "chat" | "loadtest";
+type ActiveTab = "chat" | "loadtest" | "mcptheory" | "mcploadtest";
 
 export default function App() {
   const { instance, accounts, inProgress } = useMsal();
@@ -70,6 +72,18 @@ export default function App() {
                 onClick={() => setActiveTab("loadtest")}
               >
                 Load Test
+              </button>
+              <button
+                className={`nav-tab nav-tab-mcp ${activeTab === "mcptheory" ? "active" : ""}`}
+                onClick={() => setActiveTab("mcptheory")}
+              >
+                MCP Chat
+              </button>
+              <button
+                className={`nav-tab nav-tab-mcp ${activeTab === "mcploadtest" ? "active" : ""}`}
+                onClick={() => setActiveTab("mcploadtest")}
+              >
+                MCP Load Test
               </button>
             </nav>
           )}
@@ -152,7 +166,10 @@ export default function App() {
             </div>
           </div>
         ) : (
-          activeTab === "chat" ? <Chat /> : <LoadTest />
+          activeTab === "chat" ? <Chat /> :
+          activeTab === "loadtest" ? <LoadTest /> :
+          activeTab === "mcptheory" ? <McpChat /> :
+          <McpLoadTest />
         )}
       </main>
     </div>

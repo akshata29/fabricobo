@@ -279,7 +279,7 @@ export default function LoadTest() {
     setHistoryLoading(true);
     try {
       const token = await getAccessToken();
-      const resp = await fetch(`${API_BASE_URL}/tests`, {
+      const resp = await fetch(`${API_BASE_URL}/tests?type=chat`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

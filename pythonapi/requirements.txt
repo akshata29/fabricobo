@@ -29,3 +29,16 @@ pydantic-settings==2.7.1
 botbuilder-core==4.16.2
 botbuilder-integration-aiohttp==4.16.2
 aiohttp==3.11.11
+
+# ────────────────────────────────────────────────────────────────
+# MCP Concurrency-Theory Path (required only for /api/agent/v2 and /mcp)
+# ────────────────────────────────────────────────────────────────
+
+# OpenAI Python SDK — used by the MCP tool to call the Fabric Data Agent's
+# OpenAI Assistants API endpoint directly (client.beta.threads.*).
+# The same SDK that fabric_data_agent_client.py (GitHub sample) uses.
+# NOTE: fastmcp was removed due to a pydantic 2.12+ incompatibility
+# (TypeError: cannot specify both default and default_factory).
+# The MCP Streamable HTTP server is now implemented directly on Starlette
+# (already in the FastAPI dependency tree — no extra package needed).
+openai>=1.50.0

@@ -159,8 +159,9 @@ async def validate_token(
 # OBO Token Acquisition — MSAL Confidential Client
 # ════════════════════════════════════════════════════════════════
 
-# The downstream scope for OBO — same as in .NET AgentController
-FOUNDRY_SCOPES = ["https://ai.azure.com/.default"]
+# Downstream OBO scopes
+FOUNDRY_SCOPES = ["https://ai.azure.com/.default"]  # scope for Foundry Responses API
+FABRIC_SCOPES = ["https://api.fabric.microsoft.com/.default"]  # scope for direct Fabric calls (MCP path)
 
 
 class OboTokenService:
@@ -236,3 +237,58 @@ class OboTokenService:
                 "error": f"Failed to acquire OBO token: {error} — {error_description}",
             },
         )
+
+    async def exchange_token_for_fabric(self, user_token: str) -> str:
+        """
+        Exchange the user's incoming JWT for a Fabric-scoped OBO token.
+
+        Used exclusively on the MCP theory path (/api/agent/v2) where the
+        MCP server calls the Fabric Data Agent directly instead of going through
+        Foundry's built-in Fabric tool.
+
+        Args:
+            user_token: The incoming JWT from the SPA.
+
+        Returns:
+            Access token scoped to https://api.fabric.microsoft.com/.default
+
+        Raises:
+            HTTPException: 401 if the OBO exchange fails.
+        """
+        logger.debug("Performing Fabric OBO exchange (MCP path)")
+
+        result = self._get_app().acquire_token_on_behalf_of(
+            user_assertion=user_token,
+            scopes=FABRIC_SCOPES,
+        )
+
+        if "access_token" in result:
+            logger.debug("Fabric OBO exchange succeeded")
+            return result["access_token"]
+
+        error = result.get("error", "unknown_error")
+        error_description = result.get("error_description", "No description")
+        logger.warning("Fabric OBO exchange failed: %s — %s", error, error_description)
+
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "status": "fabric_obo_error",
+                "error": f"Failed to acquire Fabric OBO token: {error} — {error_description}",
+            },
+        )
+
+    async def acquire_service_token(self) -> str:
+        """
+        Acquire a Foundry-scoped token using client credentials (service identity, not OBO).
+        Used at startup for agent management operations (create / update FabricMcpAgent).
+        """
+        logger.debug("Acquiring service token via client credentials")
+        result = self._get_app().acquire_token_for_client(scopes=FOUNDRY_SCOPES)
+        if "access_token" in result:
+            logger.debug("Service token acquired")
+            return result["access_token"]
+        error = result.get("error", "unknown_error")
+        error_description = result.get("error_description", "No description")
+        logger.warning("Service token acquisition failed: %s — %s", error, error_description)
+        raise RuntimeError(f"Failed to acquire service token: {error} — {error_description}")

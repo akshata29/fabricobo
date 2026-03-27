@@ -3,9 +3,11 @@
 #
 # Equivalent of Program.cs + Controllers in .NET.
 # Implements the same endpoints:
-#   POST /api/agent     — SPA path (JWT → OBO → Foundry)
+#   POST /api/agent     — SPA path (JWT → OBO → Foundry, built-in Fabric tool)
+#   POST /api/agent/v2  — MCP theory path (JWT → OBO → Foundry → MCP → Fabric direct)
 #   GET  /api/config    — SPA authentication config (public, no auth)
 #   POST /api/messages  — Bot Framework endpoint (Teams / Copilot Studio)
+#   /mcp                — MCP server (theory path: Foundry calls back here for Fabric data)
 #
 # Run with:
 #   uvicorn main:app --host 0.0.0.0 --port 5180 --reload
@@ -18,6 +20,7 @@ import json
 import logging
 import re
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -26,10 +29,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from auth import OboTokenService, TokenClaims
-from config import AzureAdSettings, BotSettings, CorsSettings, FoundrySettings, SpaAuthSettings
+from config import AzureAdSettings, BotSettings, CorsSettings, FabricDirectSettings, FoundrySettings, SpaAuthSettings
 from entitlement_service import StubEntitlementService
 from foundry_agent_service import FoundryAgentService
+from mcp_foundry_service import McpFoundryAgentService
 from models import AgentRequest, AgentResponse, EntitlementResult
+import token_session_store
 
 # ════════════════════════════════════════════════════════════════
 # Configuration & Logging
@@ -53,6 +58,7 @@ foundry = FoundrySettings()
 spa_auth = SpaAuthSettings()
 bot = BotSettings()
 cors = CorsSettings()
+fabric_direct = FabricDirectSettings()
 
 # Entitlement users — loaded from ENTITLEMENT_USERS_JSON env var
 # Format: '[{"upn":"user@tenant.com","rep_code":"REP001","role":"Advisor"}]'
@@ -72,6 +78,28 @@ except json.JSONDecodeError:
 obo_service = OboTokenService(azure_ad)
 entitlement_service = StubEntitlementService(_entitlement_users)
 foundry_service = FoundryAgentService(foundry)
+mcp_foundry_service = McpFoundryAgentService(foundry, fabric_direct)
+
+
+# ════════════════════════════════════════════════════════════════
+# Startup: ensure FabricMcpAgent exists in Foundry
+# ════════════════════════════════════════════════════════════════
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Create / update the FabricMcpAgent in Foundry so it appears in the portal."""
+    if fabric_direct.is_configured:
+        try:
+            service_token = await obo_service.acquire_service_token()
+            agent_name = await mcp_foundry_service.ensure_agent(service_token)
+            logger.info("FabricMcpAgent ready in Foundry: %s", agent_name)
+        except Exception as exc:
+            # Non-fatal: MCP path still works with inline tools as fallback
+            logger.warning(
+                "Could not ensure FabricMcpAgent at startup (will fall back to inline tools): %s", exc
+            )
+    yield
+    # No cleanup needed
 
 
 # ════════════════════════════════════════════════════════════════
@@ -80,10 +108,13 @@ foundry_service = FoundryAgentService(foundry)
 
 app = FastAPI(
     title="FabricObo API (Python)",
+    lifespan=lifespan,
     description=(
         "Python implementation of the Fabric OBO API. "
         "Validates user JWTs, performs OBO token exchange, "
-        "and calls the Azure AI Foundry Responses API with Fabric tool."
+        "and calls the Azure AI Foundry Responses API with Fabric tool. "
+        "Also exposes /api/agent/v2 (MCP concurrency-theory path) and "
+        "an MCP server at /mcp."
     ),
     version="1.0.0",
 )
@@ -316,13 +347,152 @@ async def post_messages(request: Request):
 
 
 # ════════════════════════════════════════════════════════════════
+# POST /api/agent/v2 — MCP Theory Path (concurrency experiment)
+#
+# Alternative to /api/agent that replaces Foundry's built-in Fabric
+# tool with a custom MCP server (fabric_mcp_server.py) that:
+#   • Does a SECOND OBO exchange for the Fabric scope
+#   • Creates a NEW Fabric thread per request
+#   • Calls the Fabric Data Agent directly via OpenAI Assistants API
+#
+# Theory: if Fabric serialises at the thread level (not globally per-OID),
+# new-thread-per-request enables concurrent same-user Fabric runs.
+#
+# Prerequisites:
+#   FABRIC_DIRECT_DATA_AGENT_URL — your Fabric Data Agent URL
+#   FABRIC_DIRECT_API_PUBLIC_URL — public URL of this API (dev: devtunnel URL)
+# ════════════════════════════════════════════════════════════════
+
+@app.post("/api/agent/v2", response_model=AgentResponse, response_model_by_alias=True, response_model_exclude_none=True)
+async def post_agent_mcp(
+    request: AgentRequest,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """
+    MCP-based Fabric query path (theory test for same-user concurrency).
+
+    Identical flow to /api/agent up to the OBO exchange, then diverges:
+      1. Performs a second OBO exchange for the Fabric scope.
+      2. Stores the Fabric token in the in-process session store.
+      3. Calls Foundry with an inline MCP tool (not the built-in Fabric tool).
+      4. Foundry calls back to /mcp (this API) to invoke query_fabric.
+      5. The MCP tool retrieves the Fabric token and runs the query on a NEW thread.
+    """
+    if not fabric_direct.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "MCP theory path is not configured. "
+                "Set FABRIC_DIRECT_DATA_AGENT_URL and FABRIC_DIRECT_API_PUBLIC_URL."
+            ),
+        )
+
+    correlation_id = uuid.uuid4().hex[:12]
+    upn = user.upn
+    oid = user.oid
+
+    logger.info(
+        "[%s] MCP path request from UPN=%s Question='%s'",
+        correlation_id,
+        upn,
+        _truncate(request.question, 100),
+    )
+
+    raw_token = user.raw_claims.get("_raw_token", "")
+    if not raw_token:
+        raise HTTPException(status_code=500, detail="Internal error: raw token not available for OBO exchange")
+
+    # OBO #1 — Foundry scope (for the Foundry Responses API call)
+    try:
+        foundry_obo_token = await obo_service.exchange_token(raw_token)
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail={"status": "obo_error", "error": str(ex)})
+
+    # OBO #2 — Fabric scope (for the MCP tool to call Fabric directly with RLS)
+    try:
+        fabric_obo_token = await obo_service.exchange_token_for_fabric(raw_token)
+    except HTTPException:
+        raise
+    except Exception as ex:
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "fabric_obo_error", "error": f"Fabric OBO failed: {ex}"},
+        )
+
+    # Store Fabric token in the session store — the MCP tool retrieves it by this key.
+    # The session_key itself (an opaque UUID) is the only value that flows through
+    # Foundry's model context.
+    session_key = str(uuid.uuid4())
+    token_session_store.set_token(session_key, fabric_obo_token)
+    logger.debug("[%s] Fabric token stored in session store. session_key=%s...", correlation_id, session_key[:8])
+
+    agent_response = await mcp_foundry_service.run_agent(
+        question=request.question,
+        session_key=session_key,
+        obo_access_token=foundry_obo_token,
+        correlation_id=correlation_id,
+        conversation_id=request.conversation_id,
+    )
+
+    # Eagerly evict the session key now that the Foundry round-trip is done
+    token_session_store.delete_token(session_key)
+
+    logger.info(
+        "[%s] MCP path response: Status=%s ConversationId=%s",
+        correlation_id,
+        agent_response.status,
+        agent_response.conversation_id,
+    )
+    return agent_response
+
+
+# ════════════════════════════════════════════════════════════════
+# /mcp  — MCP Server (mounted ASGI sub-app)
+#
+# This is the endpoint Foundry calls when the agent invokes the
+# query_fabric MCP tool.  It is served by fabric_mcp_server.py.
+#
+# Only mounted when FABRIC_DIRECT settings are fully configured.
+# The Mount is placed AFTER /api/* routes so it does not interfere.
+# ════════════════════════════════════════════════════════════════
+
+if fabric_direct.is_configured:
+    try:
+        from fabric_mcp_server import build_mcp_asgi_app
+        mcp_asgi = build_mcp_asgi_app(fabric_direct)
+        # path="/" inside the sub-app + mount at "/mcp" → endpoint is POST /mcp
+        app.mount("/mcp", mcp_asgi)
+        logger.info(
+            "MCP server mounted at /mcp (Foundry MCP server_url: %s)",
+            fabric_direct.mcp_server_url,
+        )
+    except ImportError as e:
+        logger.warning(
+            "fastmcp not installed — MCP server not mounted. "
+            "Run: pip install fastmcp openai  (%s)",
+            e,
+        )
+else:
+    logger.info(
+        "FABRIC_DIRECT settings not configured — /mcp endpoint not mounted. "
+        "Set FABRIC_DIRECT_DATA_AGENT_URL and FABRIC_DIRECT_API_PUBLIC_URL to enable."
+    )
+
+
+# ════════════════════════════════════════════════════════════════
 # Health check endpoint
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/health")
 async def health():
     """Simple health check endpoint."""
-    return {"status": "healthy", "implementation": "python"}
+    return {
+        "status": "healthy",
+        "implementation": "python",
+        "mcp_path_configured": fabric_direct.is_configured,
+    }
 
 
 # ════════════════════════════════════════════════════════════════
@@ -332,7 +502,7 @@ async def health():
 # ════════════════════════════════════════════════════════════════
 
 _DATA_DIR = Path(__file__).parent / "data"
-_TEST_ID_RE = re.compile(r'^[A-Z0-9]{6,16}$')
+_TEST_ID_RE = re.compile(r'^[A-Z0-9]{6,16}$|^MCP-[A-Z0-9]{6,16}$')
 
 
 @app.post("/api/tests", status_code=201)
@@ -356,8 +526,11 @@ async def save_test(
 
 
 @app.get("/api/tests")
-async def list_tests(user: TokenClaims = Depends(get_current_user)):
-    """List all saved test sessions (metadata only, no per-request results)."""
+async def list_tests(
+    user: TokenClaims = Depends(get_current_user),
+    type: Optional[str] = None,
+):
+    """List saved test sessions. Pass ?type=chat or ?type=mcp to filter by type."""
     _DATA_DIR.mkdir(exist_ok=True)
     tests = []
     for f in sorted(_DATA_DIR.glob("load-test-*.json"), reverse=True):
@@ -375,6 +548,10 @@ async def list_tests(user: TokenClaims = Depends(get_current_user)):
             })
         except Exception:
             pass
+    if type == "mcp":
+        tests = [t for t in tests if str(t.get("testId", "")).startswith("MCP-")]
+    elif type == "chat":
+        tests = [t for t in tests if not str(t.get("testId", "")).startswith("MCP-")]
     return tests
 
 
