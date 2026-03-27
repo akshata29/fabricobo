@@ -16,6 +16,7 @@
 # ════════════════════════════════════════════════════════════════
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -322,6 +323,71 @@ async def post_messages(request: Request):
 async def health():
     """Simple health check endpoint."""
     return {"status": "healthy", "implementation": "python"}
+
+
+# ════════════════════════════════════════════════════════════════
+# Test history — POST/GET /api/tests
+#
+# Saves completed load-test sessions to pythonapi/data/ as JSON.
+# ════════════════════════════════════════════════════════════════
+
+_DATA_DIR = Path(__file__).parent / "data"
+_TEST_ID_RE = re.compile(r'^[A-Z0-9]{6,16}$')
+
+
+@app.post("/api/tests", status_code=201)
+async def save_test(
+    request: Request,
+    user: TokenClaims = Depends(get_current_user),
+):
+    """Save a completed load-test session JSON to the data/ folder."""
+    body = await request.json()
+    test_id = str(body.get("testId", "")).upper()
+    if not _TEST_ID_RE.match(test_id):
+        raise HTTPException(status_code=400, detail="Invalid testId")
+    _DATA_DIR.mkdir(exist_ok=True)
+    start_time = body.get("startTimeIso", "")
+    safe_ts = start_time[:19].replace(":", "-").replace("T", "_") if start_time else "unknown"
+    filename = f"load-test-{test_id}-{safe_ts}.json"
+    filepath = _DATA_DIR / filename
+    filepath.write_text(json.dumps(body, indent=2), encoding="utf-8")
+    logger.info("Saved load test %s → %s", test_id, filepath.name)
+    return {"saved": True, "testId": test_id, "filename": filename}
+
+
+@app.get("/api/tests")
+async def list_tests(user: TokenClaims = Depends(get_current_user)):
+    """List all saved test sessions (metadata only, no per-request results)."""
+    _DATA_DIR.mkdir(exist_ok=True)
+    tests = []
+    for f in sorted(_DATA_DIR.glob("load-test-*.json"), reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            tests.append({
+                "testId": data.get("testId"),
+                "startTimeIso": data.get("startTimeIso"),
+                "endTimeIso": data.get("endTimeIso"),
+                "totalDurationMs": data.get("totalDurationMs"),
+                "fabricSku": data.get("fabricSku"),
+                "summary": data.get("summary"),
+                "config": data.get("config"),
+                "filename": f.name,
+            })
+        except Exception:
+            pass
+    return tests
+
+
+@app.get("/api/tests/{test_id}")
+async def get_test(test_id: str, user: TokenClaims = Depends(get_current_user)):
+    """Return the full JSON for a specific saved test session."""
+    if not _TEST_ID_RE.match(test_id.upper()):
+        raise HTTPException(status_code=400, detail="Invalid test_id")
+    _DATA_DIR.mkdir(exist_ok=True)
+    matches = list(_DATA_DIR.glob(f"load-test-{test_id.upper()}-*.json"))
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
+    return json.loads(matches[0].read_text(encoding="utf-8"))
 
 
 def _truncate(value: str, max_length: int) -> str:

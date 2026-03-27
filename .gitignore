@@ -43,5 +43,6 @@ dotnetapi/Bot/localhost.bot
 pythonapi/.env
 pythonapi/__pycache__/
 pythonapi/.venv/
+pythonapi/data/
 __pycache__/
 *.pyc

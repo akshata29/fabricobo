@@ -14,12 +14,20 @@ Or headless with custom params:
     --host http://localhost:5180
 
 Environment variables:
-  LOCUST_HOST          — API base URL (default: http://localhost:5180)
-  LOCUST_INPUT_TOKENS  — Target input token count per request (default: 2000)
-  LOCUST_OUTPUT_TOKENS — Target output token count reference (default: 500)
-  LOCUST_BEARER_TOKEN  — Static bearer token for auth (required for /api/agent)
-                         Obtain via browser devtools: copy the Bearer token from
-                         any /api/agent request in the Network tab while logged in.
+  LOCUST_HOST           — API base URL (default: http://localhost:5180)
+  LOCUST_INPUT_TOKENS   — Target input token count per request (default: 2000)
+  LOCUST_OUTPUT_TOKENS  — Target output token count reference (default: 500)
+
+  Token configuration (pick one):
+  LOCUST_BEARER_TOKENS  — Comma-separated bearer tokens, one per simulated user.
+                          RECOMMENDED for concurrency testing: each user gets a
+                          distinct Entra identity so Fabric runs requests fully
+                          in parallel (no same-user thread contention).
+                          Example: set LOCUST_BEARER_TOKENS=tokenA,tokenB,...
+  LOCUST_BEARER_TOKEN   — Single shared token (all users share one identity).
+                          Use only for single-user throughput tests; concurrent
+                          requests from the same identity will hit Fabric's
+                          one-active-run-per-user constraint.
 
 F64 SKU Capacity Reference (2000 in + 500 out tokens @ 0.11 CU-hrs/request):
   CUs          : 64
@@ -44,7 +52,31 @@ logger = logging.getLogger("fabricobo.locust")
 
 INPUT_TOKENS = int(os.getenv("LOCUST_INPUT_TOKENS", "2000"))
 OUTPUT_TOKENS = int(os.getenv("LOCUST_OUTPUT_TOKENS", "500"))
-BEARER_TOKEN = os.getenv("LOCUST_BEARER_TOKEN", "")
+
+# Token pool — supports two modes:
+#
+#  1. Single token (original behaviour — all users share one identity):
+#       set LOCUST_BEARER_TOKEN=<token>
+#
+#  2. Token pool (recommended for true concurrency testing — each simulated
+#     user gets its own identity so Fabric sees distinct users and runs
+#     requests fully in parallel with no thread contention):
+#       set LOCUST_BEARER_TOKENS=<token1>,<token2>,...,<tokenN>
+#
+# LOCUST_BEARER_TOKENS takes precedence over LOCUST_BEARER_TOKEN.
+_tokens_raw = os.getenv("LOCUST_BEARER_TOKENS", "")
+if _tokens_raw:
+    BEARER_TOKEN_POOL: list[str] = [t.strip() for t in _tokens_raw.split(",") if t.strip()]
+else:
+    single = os.getenv("LOCUST_BEARER_TOKEN", "")
+    BEARER_TOKEN_POOL = [single] if single else []
+
+# Keep the old name as an alias so on_test_start warning still works
+BEARER_TOKEN = BEARER_TOKEN_POOL[0] if BEARER_TOKEN_POOL else ""
+
+# Shared atomic counter for round-robin token assignment across users
+_token_index = 0
+_token_lock = __import__("threading").Lock()
 
 # F64 capacity constants
 F64_CU_HOURS_PER_DAY = 1536
@@ -117,11 +149,26 @@ def on_test_start(environment, **kwargs):
     _test_start_time = datetime.now(timezone.utc).isoformat()
     _test_results = []
 
-    if not BEARER_TOKEN:
+    if not BEARER_TOKEN_POOL:
         logger.warning(
-            "LOCUST_BEARER_TOKEN is not set. "
+            "No bearer token configured. "
             "Requests to /api/agent will return 401. "
-            "Set it via: set LOCUST_BEARER_TOKEN=<token>"
+            "Set LOCUST_BEARER_TOKENS=<t1>,<t2>,... (one per simulated user) "
+            "or LOCUST_BEARER_TOKEN=<token> for a single shared token."
+        )
+    elif len(BEARER_TOKEN_POOL) == 1:
+        logger.warning(
+            "Only one bearer token configured (LOCUST_BEARER_TOKEN). "
+            "All simulated users will share the same Fabric identity, which "
+            "causes thread contention for concurrent same-user requests. "
+            "Set LOCUST_BEARER_TOKENS=<t1>,<t2>,... with one token per user "
+            "to test true concurrency across distinct identities."
+        )
+    else:
+        logger.info(
+            "Token pool loaded — %d distinct identities for %d simulated users.",
+            len(BEARER_TOKEN_POOL),
+            len(BEARER_TOKEN_POOL),
         )
 
     logger.info(
@@ -264,15 +311,31 @@ class FabricAgentUser(HttpUser):
     """
     Simulates a single concurrent user sending questions to the Fabric OBO agent.
 
+    Each user instance is assigned a unique token from BEARER_TOKEN_POOL via
+    round-robin assignment in on_start(). This ensures every concurrent user
+    presents a distinct Entra identity to Foundry, which forwards it to Fabric
+    via OBO — preventing Fabric thread contention for same-user concurrent runs.
+
     Wait time is set to mimic realistic usage (0–1 second between requests
     per user). Adjust as needed for burst vs. sustained load patterns.
     """
 
     wait_time = between(0, 1)
-    _request_counter = 0
+    _request_counter: int = 0
+    _bearer_token: str = ""
 
     def on_start(self):
+        global _token_index
         self._request_counter = random.randint(0, 999)
+
+        # Assign a token from the pool in round-robin order (thread-safe)
+        if BEARER_TOKEN_POOL:
+            with _token_lock:
+                idx = _token_index % len(BEARER_TOKEN_POOL)
+                _token_index += 1
+            self._bearer_token = BEARER_TOKEN_POOL[idx]
+        else:
+            self._bearer_token = ""
 
     @task
     def ask_agent(self):
@@ -283,8 +346,8 @@ class FabricAgentUser(HttpUser):
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        if BEARER_TOKEN:
-            headers["Authorization"] = f"Bearer {BEARER_TOKEN}"
+        if self._bearer_token:
+            headers["Authorization"] = f"Bearer {self._bearer_token}"
 
         with self.client.post(
             "/api/agent",
