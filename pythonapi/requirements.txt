@@ -28,7 +28,7 @@ pydantic-settings==2.7.1
 # Bot Framework SDK for Python — Teams / Copilot Studio integration
 botbuilder-core==4.16.2
 botbuilder-integration-aiohttp==4.16.2
-aiohttp==3.11.11
+aiohttp==3.10.5
 
 # ────────────────────────────────────────────────────────────────
 # MCP Concurrency-Theory Path (required only for /api/agent/v2 and /mcp)

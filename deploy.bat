@@ -1,0 +1,1 @@
+pwsh .\deploy.ps1 -ResourceGroup astdnapublic -AcrName astdnapublicacr -AppServicePlan finagentsasp -WebAppName astdnamaffabric

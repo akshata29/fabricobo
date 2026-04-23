@@ -572,6 +572,42 @@ def _truncate(value: str, max_length: int) -> str:
 
 
 # ════════════════════════════════════════════════════════════════
+# Static file serving — React SPA frontend
+#
+# When the container is built with the Dockerfile, the Vite build
+# output (client-app/dist) is copied to /app/static.  FastAPI serves
+# it here.  All /api/*, /health, and /mcp routes defined above take
+# priority over the catch-all SPA route below.
+# ════════════════════════════════════════════════════════════════
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.exists():
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.responses import FileResponse as _FileResponse
+
+    # Serve hashed JS/CSS bundles produced by Vite under /assets/*
+    _assets_dir = _STATIC_DIR / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Catch-all: serve static files or index.html for SPA routing."""
+        target = (_STATIC_DIR / full_path).resolve()
+        static_root = _STATIC_DIR.resolve()
+        # Security: never serve files outside the static directory
+        try:
+            target.relative_to(static_root)
+            is_safe = True
+        except ValueError:
+            is_safe = False
+        if is_safe and target.is_file():
+            return _FileResponse(str(target))
+        return _FileResponse(str(_STATIC_DIR / "index.html"))
+
+    logger.info("React SPA mounted — serving from %s", _STATIC_DIR)
+
+
+# ════════════════════════════════════════════════════════════════
 # Entry point — run with: python main.py
 # ════════════════════════════════════════════════════════════════
 

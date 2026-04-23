@@ -1,0 +1,36 @@
+# Git history
+.git/
+.gitignore
+
+# Node modules and build artifacts
+**/node_modules/
+client-app/dist/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+pythonapi/.pytest_cache/
+
+# Secrets - never bake these into the image
+pythonapi/.env
+.env
+
+# .NET build artifacts (not needed)
+dotnetapi/bin/
+dotnetapi/obj/
+
+# Dev/test files not needed in the image
+locustfile.py
+*.bat
+*.ps1
+docs/
+scripts/
+teams-manifest/
+
+# IDE / OS artifacts
+.vscode/
+.idea/
+**/.DS_Store
+Thumbs.db
